@@ -4,7 +4,8 @@ import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { hardRestartMarveenChannels, lastMainRespawnAt, MARVEEN_POST_RESPAWN_GRACE_MS } from './channel-monitor.js'
 import { shouldDeferForRecentRespawn } from './stuck-tool-call-watcher.js'
-import { listAgentNames, listAllAgentNames, agentDir, readAgentModel, readAgentClaudeConfigDir, readAgentRemoteHost } from './agent-config.js'
+import { listAgentNames, listAllAgentNames, agentDir, readAgentModel, readAgentRemoteHost } from './agent-config.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 import {
   agentRunState,
   agentSessionName,
@@ -148,7 +149,10 @@ export function resumePrompt(name: string, handoffPath: string, hadHandoff: bool
 }
 
 function configDirFor(name: string): string | undefined {
-  return name === MAIN_AGENT_ID ? undefined : (readAgentClaudeConfigDir(name) ?? undefined)
+  // resolveAgentConfigDirForRead, not readAgentClaudeConfigDir: an agent whose
+  // config dir was auto-provisioned by the launcher has no field to read, and
+  // reading the host default silently returns another agent's absence.
+  return name === MAIN_AGENT_ID ? undefined : (resolveAgentConfigDirForRead(name) ?? undefined)
 }
 
 /** Raw observed context size (tokens) for the idle-flush tier's absolute threshold. */

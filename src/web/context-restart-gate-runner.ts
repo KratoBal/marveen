@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
-import { listAgentNames, readAgentClaudeConfigDir } from './agent-config.js'
+import { listAgentNames } from './agent-config.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 import { agentSessionName, capturePane } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit } from '../model-fallback.js'
@@ -105,7 +106,12 @@ function workingDirFor(name: string): string {
  * the symptom is a gate that never opens and never says why.
  */
 function configDirFor(name: string): string | undefined {
-  return name === MAIN_AGENT_ID ? undefined : (readAgentClaudeConfigDir(name) ?? undefined)
+  // resolveAgentConfigDirForRead, not readAgentClaudeConfigDir: the launcher
+  // auto-provisions agents/<name>/.claude-config when no field is set, and
+  // reading the host default returns a stale transcript instead of nothing --
+  // which is worse than the null this comment warns about, because the gate
+  // then believes it can see.
+  return name === MAIN_AGENT_ID ? undefined : (resolveAgentConfigDirForRead(name) ?? undefined)
 }
 
 function agentIdForLedger(name: string): string {
