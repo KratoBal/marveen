@@ -27,7 +27,7 @@ import {
   capturePane,
   clearFeedbackModalAndRecheck,
 } from './agent-process.js'
-import { detectPaneState, type PaneState } from '../pane-state.js'
+import { detectPaneState, detectsApprovalPrompt, type PaneState } from '../pane-state.js'
 import { setLastInboundModality } from './voice-modality.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from './agent-message-wrap.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
@@ -91,10 +91,26 @@ export function formatStuckSessionAlert(
   stuckMs: number,
   pendingCount: number,
   paneState: PaneState | null = null,
+  approvalPending = false,
 ): string | null {
   if (agent === mainAgentId) return null
   const min = Math.round(stuckMs / 60000)
   const queue = `${pendingCount} pending message(s) queued`
+  // An agent parked on a permission prompt is NOT wedged: it is working
+  // correctly and waiting for a human. It reads as stuck from the queue side
+  // only because a session awaiting approval never drains its inbox.
+  //
+  // This branch comes first, ahead of the busy check, because the two can
+  // co-occur in a capture and only one of them has an action attached. Measured
+  // 2026-08-21 across one unattended night: three [session-stuck] alerts, all
+  // on agents sitting on read-only permission prompts, all carrying the default
+  // "restart the agent if it is wedged" advice. Following that advice restarts
+  // a healthy agent and throws away its turn -- and the same night, one queued
+  // message waited ten minutes purely because its recipient stopped for
+  // approval three times in a row.
+  if (approvalPending) {
+    return `[session-stuck] Agent '${agent}' (tmux ${session}) has been not-ready for ${min} min with ${queue}, and its pane is parked on a PERMISSION PROMPT ("Do you want to ..."). This is NOT a wedge: the agent is waiting for a human answer, and it cannot receive messages until someone answers. Do NOT restart it -- read what it is asking for and approve or deny. Restarting throws away the turn and the prompt comes straight back.`
+  }
   // A busy pane means the session is working, so the alert must not read like
   // "wedged, restart it" -- that framing is what turned the earlier busy-pane
   // alerts into wasted restarts-in-waiting. It says what it is: a long turn,
@@ -105,12 +121,12 @@ export function formatStuckSessionAlert(
   return `[session-stuck] Agent '${agent}' (tmux ${session}) has been not-ready for ${min} min with ${queue}. Run the delivery-stall diagnosis: check the pane (busy vs idle vs full context) and restart the agent if it is wedged.`
 }
 
-function notifyOrchestratorOfStuckSession(agent: string, session: string, stuckMs: number, pendingCount: number, paneState: PaneState | null): void {
+function notifyOrchestratorOfStuckSession(agent: string, session: string, stuckMs: number, pendingCount: number, paneState: PaneState | null, approvalPending = false): void {
   try {
-    const alert = formatStuckSessionAlert(agent, MAIN_AGENT_ID, session, stuckMs, pendingCount, paneState)
+    const alert = formatStuckSessionAlert(agent, MAIN_AGENT_ID, session, stuckMs, pendingCount, paneState, approvalPending)
     if (!alert) return
     createAgentMessage('system', MAIN_AGENT_ID, alert)
-    logger.info({ agent, session, stuckMs, pendingCount, paneState }, 'session-stuck surfaced to orchestrator')
+    logger.info({ agent, session, stuckMs, pendingCount, paneState, approvalPending }, 'session-stuck surfaced to orchestrator')
   } catch (err) {
     logger.warn({ err, agent }, 'Failed to enqueue session-stuck notification')
   }
@@ -594,6 +610,9 @@ export async function runMessageRouterTick(): Promise<void> {
           const stuckMs = now - stuckStart
           const pane = capturePane(session, host)
           const paneState = pane != null ? detectPaneState(pane) : null
+          // Read from the SAME capture as paneState: a second capture could
+          // land on a different frame and disagree with itself.
+          const approvalPending = pane != null ? detectsApprovalPrompt(pane) : false
           if (shouldEscalateStuckSession(paneState, stuckMs)) {
             // Session has been continuously stuck past the escalation threshold.
             // Log at warn level so monitoring/revival tooling can act — the
@@ -609,7 +628,7 @@ export async function runMessageRouterTick(): Promise<void> {
             // stall to the main agent's inbox so it can run the delivery-stall
             // diagnosis (pane state, full context, restart). The escalation-window
             // reset below doubles as the notification cooldown.
-            notifyOrchestratorOfStuckSession(msg.to_agent, session, stuckMs, pendingMsgCount, paneState)
+            notifyOrchestratorOfStuckSession(msg.to_agent, session, stuckMs, pendingMsgCount, paneState, approvalPending)
             // Reset timer so we don't spam every tick; re-escalate after another window.
             agentStuckSince.set(msg.to_agent, now)
           } else {
