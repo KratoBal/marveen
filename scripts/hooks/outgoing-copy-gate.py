@@ -423,7 +423,41 @@ def mixed_script_words(text: str):
     return out
 
 
-EM_DASH = "—"
+EM_DASH = "\u2014"
+
+# --- HALASZTAS (GATEDEFER826) -----------------------------------------------
+# Balazs kerese, 2026-08-26 21:45, Discord, szo szerint: "Szeretnem ha tobbet
+# nem hangozna el a holnap, reggel es egyeb erre utalo kifejezesek csak akkor ha
+# en kifejezetten kerem." Ezt a szabalyt a CLAUDE.md negy mert esettel indokolja,
+# es a negyedik EPP AZ VOLT, hogy a szabaly csak dokumentumban allt: percekkel
+# azutan, hogy bevittem az agensek fajljaiba, sajat magam irtam le neki egy
+# "holnap reggel derul ki" mondatot. Ezert kerult kapuba.
+#
+# A SZURO A HALASZTAS ALAKJARA MEGY, NEM A SZORA. A "holnap" onmagaban legitim
+# (naptar-esemeny, szallitasi ido, tenykozles), es egy mindenre tuzelo szuro
+# semmit nem bizonyit. Ezert az idohatarozo mellett IGE is kell, es csak azok az
+# igek szamitanak, amik a SAJAT jovobeli cselekvesunkrol szolnak.
+_DEFER_VERB = (
+    r"(?:megn[eé]z|r[aá]n[eé]z|megcsin[aá]l|folytat|elk[eé]sz|megm[eé]r"
+    r"|jelent|k[uü]ld|el[eé]d\s+tesz|ind[ií]t|d[oö]nt|megold|meg[ií]r|meg[ií]rom"
+    r"|der[uü]l|kider[uü]l|megvizsg[aá]l|utan[aá]n[eé]z|visszat[eé]r|nekikezd|belekezd|halaszt|tolom|toljuk|[aá]tteszem|[aá]ttessz[uü]k|r[aá][eé]r|v[aá]rjon|hagyjuk)"
+)
+_DEFER_WHEN = r"(?:holnap|holnapra|reggel|reggelre|holnaput[aá]n)"
+DEFER_PATTERNS = [
+    # idohatarozo -> ige (pl. "holnap megnezem", "reggel eled teszek")
+    re.compile(_DEFER_WHEN + r"\b[^.!?\n]{0,40}?\b" + _DEFER_VERB, re.I),
+    # ige -> idohatarozo (pl. "megnezem holnap")
+    re.compile(_DEFER_VERB + r"\w*\b[^.!?\n]{0,25}?\b" + _DEFER_WHEN + r"\b", re.I),
+    # allando fordulatok, ige nelkul is halasztas
+    re.compile(r"majd\s+holnap", re.I),
+    re.compile(r"friss\s+fejjel", re.I),
+    re.compile(r"ne\s+v[aá]rj\s+r[aá]", re.I),
+    re.compile(r"holnap\s+ujra|holnap\s+újra", re.I),
+]
+# Az EGYETLEN kivetel: ha Balazs KIFEJEZETTEN kerte az idopontot. Ez nem
+# megkerules, hanem a szabaly sajat feltetele -- es azert kell kiirni a
+# szovegbe, hogy lathato legyen, kire hivatkozunk.
+DEFER_EXEMPT = re.compile(r"ahogy\s+k[eé]rted|ahogy\s+k[eé]rte|k[eé]rted?,?\s+hogy\s+holnap", re.I)
 
 # GATEPERSIST816: owner-specific NAME rules load from an UNTRACKED local file,
 # not from this (public-repo) script. The generic checks (accents, em dash,
@@ -643,7 +677,7 @@ def collect_telegram_body(tool_input: dict) -> str:
     return MDV2_ESCAPE.sub(r"\1", "\n".join(got))
 
 
-def telegram_gate(tool_input: dict) -> None:
+def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:
     """Audit a Telegram reply. FAIL-OPEN on any internal error (exit 0 + loud
     log): email is deferrable, but Telegram is the owner's ONLY supervision
     channel -- a gate crash that silences it costs more than a slipped accent.
@@ -656,7 +690,7 @@ def telegram_gate(tool_input: dict) -> None:
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001 -- deliberate blanket: fail-open path
-        warn = f"outgoing-copy-gate: TELEGRAM-ag belso hiba, FAIL-OPEN atengedes: {exc!r}\n"
+        warn = f"outgoing-copy-gate: {channel.upper()}-ag belso hiba, FAIL-OPEN atengedes: {exc!r}\n"
         sys.stderr.write(warn)
         try:
             log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -668,7 +702,7 @@ def telegram_gate(tool_input: dict) -> None:
         sys.exit(0)
     if problems:
         sys.stderr.write(
-            "KIMENO-SZOVEG KAPU (Telegram): TILTVA, az uzenet nem mehet ki igy.\n\n"
+            f"KIMENO-SZOVEG KAPU ({channel}): TILTVA, az uzenet nem mehet ki igy.\n\n"
             + "\n".join(f"  - {p}" for p in problems)
             + "\n\nJavitsd a szoveget es kuldd ujra (a MarkdownV2 escape-eket a kapu "
               "az ellenorzes elott feloldja, azok nem szamitanak hibanak).\n"
@@ -694,6 +728,22 @@ def audit(text: str):
         problems.append(
             f"GONDOLATJEL (em dash, U+2014) {plain.count(EM_DASH)} helyen -- allo szabaly, soha nem mehet ki."
         )
+    if not DEFER_EXEMPT.search(plain):
+        hits = []
+        for pat in DEFER_PATTERNS:
+            for m in pat.finditer(plain):
+                frag = " ".join(m.group(0).split())
+                if frag.lower() not in [h.lower() for h in hits]:
+                    hits.append(frag)
+        if hits:
+            shown = "; ".join(repr(h) for h in hits[:6])
+            more = f" (+{len(hits) - 6} tovabbi)" if len(hits) > 6 else ""
+            problems.append(
+                f"HALASZTAS {len(hits)} helyen: {shown}{more}. Balazs 2026-08-26-i kerese: a "
+                "holnap/reggel tipusu fordulat csak akkor mehet ki, ha O kerte. Ha valami tenylegesen "
+                "nem mehet most, NE a napszakot nevezd meg, hanem az AKADALYT: kire vagy mire vartok, "
+                "es ki oldja fel. Ha o kerte az idopontot, ird bele, hogy 'ahogy kerted'."
+            )
     bad = BAD_NAME.search(plain) if BAD_NAME else None
     if bad:
         problems.append(
@@ -764,8 +814,14 @@ def main():
     tool = str(payload.get("tool_name") or "")
     tool_input = payload.get("tool_input") or {}
 
-    if re.search(r"telegram.*__reply$", tool, re.I):
-        telegram_gate(tool_input)  # exits; never falls through
+    # GATEDISCORD820: Discord goes through the SAME branch as Telegram. The gate
+    # was written when Telegram was the owner's channel; since 2026-08-18 every
+    # message to Balazs goes to Discord instead, and that path had NO check at
+    # all -- the least-audited channel was the one carrying the most owner-facing
+    # text. The payload shape is identical (`text`), so only the match widens.
+    chat = re.search(r"(telegram|discord).*__reply$", tool, re.I)
+    if chat:
+        telegram_gate(tool_input, chat.group(1).capitalize())  # exits; never falls through
     if re.search(r"send_email", tool, re.I):
         text, unreadable = collect_mcp_body(tool_input), None
     elif tool == "Bash":

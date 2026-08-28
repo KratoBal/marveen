@@ -160,12 +160,24 @@ if CMD == "pair":
             elif va or vb:
                 # Nem egy-egy: ezt NEM talaljuk ki. Jelezzuk, es kihagyjuk.
                 pairs[("<nem egyertelmu par>", "%d:%d" % (len(va), len(vb)))] += 1
+    # A KIHAGYOTT SOROK SZAMA A STDERR-RE IS KIMEGY, MINDEN FUTASNAL.
+    # Merve 2026-08-25: 1890 termekbol 95 sosem kerult be egy ar-tablaba, mert ket
+    # ar-blokkot hordoztak, es a kihagyasuk EGYETLEN sorkent allt egy szazsoros
+    # gyakorisagi kiiras kozepen. Harom hetig nem tunt fel, mert a kimeneti fajl
+    # sorszam-oszlopa a FORRAS sorat jeloli: az utolso sor szabalyosan 1890-nel
+    # kezdodik, mikozben 1795 sor van a fajlban. Egy hianyzo sor semmilyen nyomot
+    # nem hagy. A szamot ezert nem elrejteni kell egy listaban, hanem kimondani.
+    kihagyott = sum(n for (x, _), n in pairs.items() if x == "<nem egyertelmu par>")
     if len(a) > 3:
         with out_open(a[3]) as out:
             out.write("sor\t%s\t%s\n" % (a[1], a[2]))
             for ln, x, y in rowsout:
                 out.write("%d\t%s\t%s\n" % (ln, x.replace("\t", " "), y.replace("\t", " ")))
         print("%d par -> %s" % (len(rowsout), a[3]))
+    print(
+        "parositott: %d, KIHAGYVA (nem egy-egy): %d" % (len(rowsout), kihagyott),
+        file=sys.stderr,
+    )
     print("# par-gyakorisag (%s + %s)" % (a[1], a[2]))
     for (x, y), n in pairs.most_common(100):
         print("%s\t%s\t%d" % (x.replace("\t", " "), y.replace("\t", " "), n))

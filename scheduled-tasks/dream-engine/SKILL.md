@@ -19,7 +19,7 @@ Nézz végig MINDEN agent (a fő-ágens és az összes sub-agent) tegnapi (24h) 
 
 SQL minta:
 ```bash
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT agent_id, content, keywords FROM memories WHERE created_at > strftime('%s', 'now', '-24 hours') AND category IN ('hot','warm') ORDER BY agent_id, created_at"
+python3 {{INSTALL_DIR}}/scripts/dream-query.py memories-24h
 ```
 
 Output: 0-2 konkrét skill-javaslat. Mindegyikhez: cím + 1 mondat indoklás + "flotta-szintű" vagy "agent: <név>".
@@ -27,19 +27,17 @@ Output: 0-2 konkrét skill-javaslat. Mindegyikhez: cím + 1 mondat indoklás + "
 ### Bucket 2 — 🧹 Memória-egészség (NE delete, COLD-tier-be mozgatás)
 
 ```bash
-# Vektorizálás ellenőrzés
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT COUNT(*) as total, COUNT(embedding) as with_emb FROM memories"
-# Ha NEM 100%, hívd meg a backfill endpoint-ot (Ollamaval embeddeli a hianyzo ID-kat):
-curl -s -X POST http://localhost:{{WEB_PORT}}/api/memories/backfill -H "Authorization: Bearer $(cat {{INSTALL_DIR}}/store/.dashboard-token)"
+# Tier-eloszlas (az "embeddelt" oszlop mindig 0, lasd lentebb -- ne jelentsd)
+python3 {{INSTALL_DIR}}/scripts/dream-query.py memory-stats
+# NE hívd a backfill endpointot, és NE jelentsd hibaként a hiányzó embeddingeket.
+# Balázs döntése 2026-08-18: az Ollama nem kell nekünk, nincs telepítve (a 11434-es
+# port nem válaszol), és nem is tervezzük. A vektorizálás hiánya tehát ELVÁRT állapot,
+# nem lelet. Korábban minden éjjel bekerült a DREAM.md-be, és többször is felmerült.
+# A kulcsszavas keresés enélkül is működik.
 
 # Antikvált hot-tier (>7 napos hot, nem hivatkozott a memories_fts-en az elmúlt 24h-ban)
-# FIGYELEM -- a CAST és a COALESCE MINDKETTŐ KÖTELEZŐ, ne vedd ki:
-#   a created_at/accessed_at INTEGER, a strftime('%s',...) viszont TEXT-et ad,
-#   és SQLite-ban az `integer < text` MINDIG IGAZ (típus-sorrend: INTEGER < TEXT).
-#   CAST nélkül ez a lekérdezés AZ ÖSSZES hot memóriát visszaadja, a mai aktívakat is.
-#   Az accessed_at ráadásul NULL is lehet -> COALESCE kell, különben a sor kiesik.
-#   Kétszer okozott kárt: 2026-07-30 (148 sor cold-ba, köztük aznapiak) és 2026-07-31 (35 sor).
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT id, content, accessed_at FROM memories WHERE category='hot' AND COALESCE(accessed_at, created_at) < CAST(strftime('%s', 'now', '-7 days') AS INTEGER)"
+python3 {{INSTALL_DIR}}/scripts/dream-query.py stale-hot 7
+python3 {{INSTALL_DIR}}/scripts/dream-query.py duplicates
 ```
 
 **A TÖMEGES UPDATE ELŐTT KÖTELEZŐ:** először futtasd le a fenti `SELECT`-et, nézd meg a
@@ -49,13 +47,18 @@ a mai nap, a predikátum hibás -- állj meg. (ID-lista nélkül a művelet nem 
 pontosan: 2026-07-31-én emiatt csak tartalmi mintára lehetett helyreállítani.)
 
 Műveletek:
-1. Vektorizálatlan memóriák: jelezd hányat találtál (a fire-and-forget embedding-job amúgy megcsinálja, de itt ellenőrzöd).
+1. Vektorizálatlan memóriák: NE jelezd. Ollama nélkül minden memória vektorizálatlan, ez az elvárt állapot (lásd fent).
 2. Antikvált hot/warm → COLD-tier-be PUT (UPDATE category='cold'). Sosem törlés.
 3. Pontos dupla-content: jelezd, mozgass cold-ba.
 
-A változtatásokat directly SQL-lel csináld:
+A tier-mozgatast az API-n keresztul csinald, NE kozvetlen SQL-lel: a dashboardnak sajat
+memoria-gyorsitotara van, es egy nyers UPDATE utan az meg a regi tiert adja vissza.
+Kartyankent (memoria-azonositonkent) egy hivas:
 ```bash
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "UPDATE memories SET category='cold' WHERE id IN (...)"
+curl -s -X PUT http://localhost:{{WEB_PORT}}/api/memories/<ID> \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(cat {{INSTALL_DIR}}/store/.dashboard-token)" \
+  -d '{"content":"<a valtozatlan tartalom>","category":"cold"}'
 ```
 
 **AZ UPDATE SIKERÉT NE A `changes()`-BŐL OLVASD (2026-08-07).** A `sqlite3 db "SELECT changes()"`
@@ -72,7 +75,7 @@ Output: rövid statisztika ("X memória cold-tier-be áthelyezve, Y vektorizála
 
 ```bash
 # Nyitott kanban-kártyák project + priority szerint
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT id, title, status, project, priority, assignee FROM kanban_cards WHERE status IN ('planned','in_progress','waiting') AND archived_at IS NULL ORDER BY project, priority DESC"
+python3 {{INSTALL_DIR}}/scripts/dream-query.py kanban-open
 ```
 
 Csoportosíts project szerint. A daily naplóban (utolsó 7 nap) nézd hogy melyik projekten van aktív mozgás (commit, PR, kanban-átmozgás). Hozz ki egy TOP-3 holnapi javaslatot prioritás+aktivitás súlyozva.
@@ -106,6 +109,11 @@ Output (max 1 ajánlás): repo URL + 1 mondat indok hogy MIÉRT releváns {{OWNE
 ### Bucket 5 — 🛠 Skill-flotta health (csak NEM-pinned skillek)
 
 ```bash
+# Hasznalati naplo. FIGYELEM: 2026-08-18-ig a skill_usage tabla URES volt (0 sor),
+# tehat a "utolso hasznalat >30 nap" kriterium nem kiertekelheto. Ha most is ures,
+# azt IRD KI leletkent, es ne javasolj skill-torlest -- adat nelkul az talalgatas.
+python3 {{INSTALL_DIR}}/scripts/dream-query.py skill-usage
+
 # Antikvált skillek: nincs use-log, vagy a frontmatterben pinned: false
 ls ~/.claude/skills/ | head
 # Mindegyik SKILL.md-ben grep -l "pinned: true" — ezek mind védettek
@@ -125,7 +133,7 @@ Output: 0-3 javaslat: "skill <név> antikvált (utolsó használat >30 nap), tö
 - (vagy "Nincs új javaslat")
 
 ## 🧹 Memória-egészség
-346 / 346 vektorizált, 5 hot→cold mozgatva, 0 duplikátum.
+5 hot→cold mozgatva, 0 duplikátum. (Vektorizálás: NE szerepeljen, lásd Bucket 2.)
 
 ## 🎯 Top-3 holnapi javaslat
 1. <project>: <akció> — <indok>
@@ -143,8 +151,8 @@ Output: 0-3 javaslat: "skill <név> antikvált (utolsó használat >30 nap), tö
 
 - **A DREAM.md-t ELŐSZÖR OLVASD BE, csak utána írd felül (2026-08-15 02:1x, minden éjjel egy elvesztegetett hívás).** A fájl minden éjjel felülíródik, a Write viszont visszautasítja azt a fájlt, amit ebben a menetben nem olvastál (`File has not been read yet`). Amúgy is olvasni kell: az External opportunity szekció ELŐZŐ példánya a mérvadó forrás arra, mikor futott utoljára a keresés. Tehát egy Read a kör elején két dolgot ad meg egyszerre, és megspórol egy bukott írást.
 - NE küldj üzenetet a csatornára. A DREAM.md a reggeli napindítóból kerül kiküldésre (07:30).
-- A `Bash` és SQL műveletek mind helyiek — semmilyen external API hívás (kivéve az Ollama embedding ha kell).
-- Ha akadály van (pl. DB lock, missing embedding model), írd be a DREAM.md végére `## ⚠️ Hibák` szekciót — reggel látom.
+- A `Bash` és SQL műveletek mind helyiek — semmilyen external API hívás. Ollama-hívás sem.
+- Ha akadály van (pl. DB lock), írd be a DREAM.md végére `## ⚠️ Hibák` szekciót — reggel látom. A hiányzó embedding-modell NEM akadály, azt ne írd be.
 - **GONDOLATJEL-KAPU A FÁJL LEZÁRÁSA ELŐTT, ÉS A KAPU AKADÁLYOZZA MEG AZ ÍRÁST, ne csak jelentsen (2026-08-08, elkapva)**: a DREAM.md NEM belső jegyzet, hanem KIMENŐ szöveg -- a reggeli napindító viszi a csatornára. A gazda álló szabálya (nincs gondolatjel, soha) tehát rá is áll, csak ez eddig sehol nem volt kimondva ebben a taskban, és a 2026-08-08-i futásban HAT gondolatjel került a fájlba. A tanulság általánosabb, és aznap este már két másik felületen is elsült: **egy kimenő kapu nem a szöveg TÍPUSÁHOZ tartozik, hanem a PUBLIKÁLÁS aktusához** -- ha csak az egyik útvonalon építetted be, a másik csendben átengedi.
   ```bash
   N=$(grep -oE '—|–|―' DREAM.md | wc -l | tr -d ' '); echo "dash=$N"

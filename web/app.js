@@ -771,7 +771,7 @@ function renderActivity(entries) {
     return (
       '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '">' +
         '<div class="activity-card-head">' +
-          '<span class="activity-name">' + escapeHtml(a.name) + mainBadge + '</span>' +
+          '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
           '<span style="display:flex;align-items:center;gap:8px">' +
             modeChip +
             termIcon +

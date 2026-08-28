@@ -94,6 +94,16 @@ get() {
 # (Measured by barracuda, 2026-08-18. Before escalating an ads_archive refusal to the
 # owner as a portal problem, retry it here with raw-user -- otherwise the question
 # sent to a human is the wrong question.)
+# THE TWO TOKENS PULL IN OPPOSITE DIRECTIONS, and neither error says so. Measured
+# 2026-08-21, both directions in one day:
+#   * ads_archive and the ad account need the USER token. With the page token they
+#     fail as "(#10) Application does not have permission", which reads like an app
+#     problem and is not one -- an app role belongs to a person, and a Page cannot
+#     hold one.
+#   * posts and insights need the PAGE token. With the user token they fail as
+#     "Felhasznaloi hozzaferesi kod nem tamogatott" (code 190, subcode 2069032).
+# So a refusal on one branch is a reason to try the OTHER branch before escalating
+# anything to a human. Both messages sound final and neither mentions the other.
 get_user() {
   local path="$1" qs="${2:-}"
   [ -f "$USER_TOKEN_FILE" ] || die "nincs user token: $USER_TOKEN_FILE hianyzik (a 'longlive' parancs keszíti)"

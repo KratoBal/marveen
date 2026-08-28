@@ -64,8 +64,14 @@ index_skills_dir() {
       name=$(basename "$skill_dir")
     fi
 
+    # A csonkolás KARAKTER-alapú, nem bájt-alapú. A `cut -c1-120` bájtokat vág, ami egy
+    # magyar ékezetes karakter közepén elmetszi a több bájtos UTF-8 szekvenciát -- az
+    # index ettől érvénytelen UTF-8 lesz, a grep binárisnak látja, és a skill-keresés
+    # NÉMÁN nem talál semmit (mért eset 2026-08-16: az external-company-research sora
+    # törte el a fájlt). A python3 mindig elérhető, a `cut` viszont nem multibyte-helyes.
     local desc
-    desc=$(grep -m1 "^description:" "$skill_md" 2>/dev/null | sed 's/^description: *//' | tr -d '"' | tr -d "'" | cut -c1-120)
+    desc=$(grep -m1 "^description:" "$skill_md" 2>/dev/null | sed 's/^description: *//' | tr -d '"' | tr -d "'" \
+      | python3 -c 'import sys; sys.stdout.write(sys.stdin.read().rstrip(chr(10))[:120])')
     if [ -z "$desc" ]; then
       desc="(nincs leírás)"
     fi

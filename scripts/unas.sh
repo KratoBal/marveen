@@ -105,7 +105,18 @@ def login():
             "perms": [p.text for p in root.iter("Permission")]}
     with open(cache, "w") as f:
         json.dump(info, f)
-    os.chmod(cache, 0o600)
+    # 0660, not 0600, and the chmod may fail -- deliberately, both of them.
+    # The cache is written by whoever calls login(), and since 2026-08-20 that is
+    # no longer only marveen: polip runs as its own OS user and reaches the token
+    # through the `sec-unas` group. 0600 would lock the group out of the very file
+    # its membership exists for, and a chmod by a non-owner raises EPERM even when
+    # the write itself succeeded -- which turned a working `unas.sh login` into
+    # exit 1 for polip (measured, and found by polip). The mode stays inside the
+    # same group: nobody gains access who did not already have it.
+    try:
+        os.chmod(cache, 0o660)
+    except OSError:
+        pass
     return tok, info
 
 
@@ -236,8 +247,16 @@ elif CMD == "orders":
     # A megtartott mezok LISTAJA, nem a kihagyottake. Igy ha a UNAS holnap uj mezot ad
     # vissza, az NEM kerul be automatikusan -- egy uj szemelyes mezo nem szivarog at azzal,
     # hogy valaki elfelejtette bovíteni a tiltolistat.
+    # "Referer" added 2026-08-21: it is the ONLY field in a UNAS order that says
+    # where the buyer arrived from, and without it a Facebook campaign can never
+    # be checked against our own orders -- only against Meta's self-reported
+    # attribution, which we measured to claim 77% of a month's revenue for a
+    # single campaign. It is domain-level ("l.facebook.com", "google.hu"), holds
+    # no query string and no campaign id, and in a 50-order sample half the rows
+    # were empty. That is enough while exactly ONE campaign runs, and not enough
+    # for two. It is not personal data: no name, no address, no email.
     KEEP = ("Key", "Id", "Date", "DateMod", "Currency", "Status", "StatusType",
-            "SumPriceGross", "SumPriceNet", "Seen", "Lang")
+            "SumPriceGross", "SumPriceNet", "Seen", "Lang", "Referer")
     ITEM_KEEP = ("Id", "Sku", "Name", "Unit", "Quantity", "PriceNet", "PriceGross", "Vat")
 
     def clean(o):
