@@ -509,6 +509,67 @@ export function detectsBlockingMenu(pane: string): boolean {
   return MENU_NAV_RX.test(footerRegion) || MENU_ESC_RX.test(footerRegion)
 }
 
+// Claude Code PERMISSION PROMPT: the "Do you want to ...?" box with numbered
+// options that a strict-profile agent parks on before running a tool it has no
+// standing permission for.
+//
+// Why this needs a detector of its own, separate from detectsBlockingMenu: the
+// two look similar on screen and are OPPOSITE in what they mean. A blocking
+// menu is a session that wandered into a modal and needs an Escape. A
+// permission prompt is a session that is WORKING CORRECTLY and waiting for a
+// human -- pressing Escape there cancels the agent's tool call.
+//
+// What it is actually for, measured 2026-08-21 during an unattended night: an
+// agent sitting on a permission prompt does not drain its message queue, so the
+// router sees no response and fires [session-stuck] with "restart the agent if
+// it is wedged". Three such alerts arrived that night, all on agents that were
+// perfectly healthy. Anyone following the alert's advice from a template
+// restarts a working agent and loses its turn. The two states are
+// indistinguishable from the outside -- unless something looks at the pane and
+// says which one it is.
+//
+// Deliberately NOT wired into detectPaneState: for DELIVERY purposes an agent
+// awaiting approval is exactly as not-ready as a wedged one, and widening the
+// PaneState union would change behaviour in every consumer of the hot path.
+// This only changes what the ALERT SAYS.
+//
+// Conservative on purpose -- three conditions must hold together:
+//   (a) not busy (a live turn is never a parked prompt),
+//   (b) the question sits in the live bottom region, not anywhere in
+//       scrollback, so a report that quotes the phrase does not trigger it,
+//   (c) numbered options are visible with it, which is what distinguishes the
+//       real box from prose that merely contains the words.
+const APPROVAL_QUESTION_RX = /\bDo you want to\b/
+// The options are drawn INSIDE a box, so each line starts with the frame
+// character before any indentation -- `│ ❯ 1. Yes`. Anchoring on `^\s*` alone
+// matched nothing on a real capture (caught by the test, not in production).
+const APPROVAL_OPTION_RX = /^[\s│|]*(?:❯\s*)?[1-9][.)]\s+\S/
+const APPROVAL_LIVE_REGION_LINES = 25
+
+/**
+ * True when the pane is parked on a Claude Code permission prompt: the agent
+ * asked to run something it lacks standing permission for and is waiting for a
+ * human answer. Pure + dependency-free for unit testing.
+ *
+ * A true here means "do NOT restart this agent" -- it is not stuck, it is
+ * blocked on a person.
+ */
+export function detectsApprovalPrompt(pane: string): boolean {
+  if (!pane || !pane.trim()) return false
+  const lines = pane.split('\n')
+  const liveRegion = lines.slice(-APPROVAL_LIVE_REGION_LINES)
+  const liveText = liveRegion.join('\n')
+  // (a) A live turn is never a parked prompt.
+  for (const rx of BUSY_INDICATORS) {
+    if (rx.test(liveText)) return false
+  }
+  if (BUSY_ESC_TO_INTERRUPT_RX.test(liveText)) return false
+  // (b) The question must be in the live region.
+  if (!APPROVAL_QUESTION_RX.test(liveText)) return false
+  // (c) ... together with at least one numbered option.
+  return liveRegion.some(l => APPROVAL_OPTION_RX.test(stripAllAnsi(l)))
+}
+
 // Claude Code FIRST-RUN gates: the interactive dialogs a brand-new install
 // parks on before the prompt ever renders -- the per-project "Do you trust the
 // files in this folder?" consent, the --dangerously-skip-permissions "Bypass

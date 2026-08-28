@@ -194,9 +194,19 @@ describe('first-run gate wiring contracts', () => {
 
   it('startAgentProcess stamps per-project trust in the config root the session boots from', () => {
     const stampIdx = AGENT_PROCESS.indexOf('stampProjectTrustForDir(\n      claudeConfigDir')
-    const launchIdx = AGENT_PROCESS.indexOf("runTmux(null, ['new-session', '-d', '-s', session, cmd]")
+    // Matched on the ARGUMENTS, not on the first argument's value: the launch
+    // used to pass `null` as the tmux target and now passes `startTarget` (the
+    // 2026-08-19 runAsUser fix -- an agent under its own OS user needs its own
+    // tmux server). Pinning the old literal made this test fail for a reason
+    // that had nothing to do with what it is guarding, which is ORDER.
     expect(stampIdx).toBeGreaterThan(0)
-    // The stamp must happen BEFORE the tmux session is spawned.
+    // Searched FROM the stamp, because the file contains more than one
+    // new-session call (the remote/main launch path has its own, earlier in the
+    // file). A bare indexOf found that unrelated one and made the order
+    // assertion compare two different functions.
+    const launchIdx = AGENT_PROCESS.indexOf("'new-session', '-d', '-s', session, cmd", stampIdx)
+    expect(launchIdx).toBeGreaterThan(0)
+    // The stamp must happen BEFORE the tmux session it is preparing is spawned.
     expect(launchIdx).toBeGreaterThan(stampIdx)
   })
 })
