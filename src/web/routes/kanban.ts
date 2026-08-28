@@ -17,7 +17,7 @@ import {
   getDbFileSizeMb,
 } from '../../db.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
-import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS } from '../../config.js'
+import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS } from '../../config.js'
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
@@ -27,20 +27,62 @@ import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import type { RouteContext } from './types.js'
 
+// The board's status and priority sets are enforced by a CHECK constraint on
+// kanban_cards. Without a check up here, a bad value reaches SQLite, better-
+// sqlite3 throws, and the route answers 500 -- an INPUT error wearing a SERVER
+// error's clothes.
+//
+// Why that matters more than the status code: on 2026-08-20 an agent moved a
+// card to a status it had invented ("review"), got a 500 back, and concluded
+// the board was broken. The server's own answer confirmed its wrong theory, so
+// it went looking for a fault that was never there. A 400 that names the legal
+// values would have corrected it in one line.
+//
+// Kept next to the routes rather than in db.ts on purpose: db.ts is where the
+// constraint lives, and duplicating the list there would let the two drift
+// apart silently. Here the list is the HTTP contract, and the test that guards
+// it reads this constant.
+export const KANBAN_STATUSES = ['planned', 'in_progress', 'testing', 'waiting', 'done'] as const
+export const KANBAN_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
+
+// Returns an error message when the field is present AND invalid. An absent
+// field is fine: create falls back to the column default, update leaves it be.
+// Rejecting the UNKNOWN rather than allow-listing at each call site is the same
+// inversion the agent PUT endpoint uses -- what we do not recognise is exactly
+// what we must not pass through.
+export function checkKanbanEnums(data: Record<string, unknown>): string | null {
+  const status = data.status
+  if (status !== undefined && status !== null) {
+    if (typeof status !== 'string' || !(KANBAN_STATUSES as readonly string[]).includes(status)) {
+      return `Ismeretlen státusz: ${JSON.stringify(status)}. Érvényes értékek: ${KANBAN_STATUSES.join(', ')}.`
+    }
+  }
+  const priority = data.priority
+  if (priority !== undefined && priority !== null) {
+    if (typeof priority !== 'string' || !(KANBAN_PRIORITIES as readonly string[]).includes(priority)) {
+      return `Ismeretlen prioritás: ${JSON.stringify(priority)}. Érvényes értékek: ${KANBAN_PRIORITIES.join(', ')}.`
+    }
+  }
+  return null
+}
+
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
-// exact curl commands to (1) post a short, human-readable result summary as a
+// exact commands to (1) post a short, human-readable result summary as a
 // comment -- so the finished task's result lands on its OWN card, visible in the
 // dashboard UI -- and (2) mark the card done. This is the lightweight
 // alternative to spawning a separate per-session card for every agent run: the
-// result goes where the work was asked for, with zero extra board clutter. The
-// token is read from the store at call time (never embedded in the message).
+// result goes where the work was asked for, with zero extra board clutter.
+//
+// These are fleet-api.sh calls, NOT raw curl. The strict security profiles
+// (marketer, researcher) withhold raw curl from sub-agents on purpose, so a
+// curl-shaped instruction stops the receiving agent on a permission prompt --
+// and a blocked agent cannot even be messaged, so it goes silent instead of
+// failing loudly (observed on polip, 2026-08-15). The old template also
+// embedded `$(cat <token>)`: that substitution runs in ANY double-quoted
+// context, so merely quoting the instruction back in a report executed it.
+// The helper reads the token from the store itself, so it never appears here.
 export function kanbanMoveInstructions(id: string, target: string): string {
-  const tokenPath = join(STORE_DIR, '.dashboard-token')
-  const base = `http://${WEB_HOST}:${WEB_PORT}`
-  const auth = `-H "Authorization: Bearer $(cat ${tokenPath})"`
-  const moveUrl = `${base}/api/kanban/${id}/move`
-  const commentUrl = `${base}/api/kanban/${id}/comments`
-  const cardUrl = `${base}/api/kanban/${id}`
+  const helper = `bash ${join(PROJECT_ROOT, 'scripts', 'fleet-api.sh')}`
   // Escalation target when blocked: sub-agents hand back to the main agent
   // (their delegator), who triages and only escalates to the operator when
   // the block genuinely needs a human decision. Only the main agent itself
@@ -54,35 +96,33 @@ export function kanbanMoveInstructions(id: string, target: string): string {
     'A kártyát in_progress-re húzták. Amikor VÉGEZTÉL, két lépés (mindkettő a kártyára kerül, a web UI-ban látszik):',
     '',
     '1) Írj egy rövid eredmény-összefoglalót kommentként (1-2 mondat: mi lett a vége):',
-    `  curl -s -X POST ${commentUrl} \\`,
-    `    ${auth} \\`,
-    `    -H 'Content-Type: application/json' \\`,
-    `    -d '{"author":"${target}","content":"AZ EREDMENY ROVIDEN"}'`,
+    `  ${helper} kanban-comment ${id} ${target} "AZ EREDMENY ROVIDEN"`,
     '',
     '2) Állítsd a kártyát done-ra:',
-    `  curl -s -X POST ${moveUrl} \\`,
-    `    ${auth} \\`,
-    `    -H 'Content-Type: application/json' \\`,
-    `    -d '{"status":"done","actor":"${target}"}'`,
+    `  ${helper} kanban-move ${id} done ${target}`,
     '',
-    // The "actor" field is not decoration: it is what tells the board WHO moved
+    // Conflict resolution 2026-08-18 (v1.33.0 stash pop): upstream added the "actor"
+    // field, but spelled the instruction as a raw curl call. The strict profiles
+    // withhold raw curl -- and a `$(...)`/multi-line curl stalls an agent on a
+    // permission prompt -- so keeping the upstream text verbatim would have taken the
+    // fix away from exactly the agents it is meant for. The helper carries the field
+    // instead (scripts/fleet-api.sh kanban-move <id> <status> [actor]).
+    //
+    // The "actor" argument is not decoration: it is what tells the board WHO moved
     // the card. Without it a self-pickup (agent -> in_progress on its own card)
     // is indistinguishable from an assignment, and the dispatcher echoes the
     // task back at the agent that just started it.
-    `Az "actor":"${target}" mezőt MINDEN mozgatásnál küldd el (ez mondja meg a táblának, hogy te mozgattad). Ha te magad veszed fel a kártyát in_progress-re, ott is:`,
-    `  curl -s -X POST ${moveUrl} \\`,
-    `    ${auth} \\`,
-    `    -H 'Content-Type: application/json' \\`,
-    `    -d '{"status":"in_progress","actor":"${target}"}'`,
+    `A saját nevedet (${target}) MINDEN mozgatásnál add meg utolsó argumentumként -- ez mondja meg a táblának, hogy te mozgattad. Ha te magad veszed fel a kártyát in_progress-re, ott is:`,
+    `  ${helper} kanban-move ${id} in_progress ${target}`,
     '',
     `Ha elakadtál / ${escalateTo} döntésére/lépésére vársz: NE csak status="waiting"-et állíts be. HÁROM lépés kell EGYÜTT:`,
-    `  a) Írj egy kommentet ami KÖZVETLENÜL ${escalateTo}-hez szól, egyértelműen megfogalmazva mit kell eldöntenie/megtennie (NE a saját belső elemzésedet írd oda) -- ugyanaz a comments hívás mint fent, "content" mezőben.`,
+    `  a) Írj egy kommentet ami KÖZVETLENÜL ${escalateTo}-hez szól, egyértelműen megfogalmazva mit kell eldöntenie/megtennie (NE a saját belső elemzésedet írd oda) -- ugyanaz a kanban-comment hívás mint fent.`,
     `  b) Told át a kártyát ${escalateTo}-re, hogy egyértelmű legyen a felelősség (a te neved NE maradjon rajta, ha nem te vagy a blokkoló):`,
-    `     curl -s -X PUT ${cardUrl} \\`,
-    `       ${auth} \\`,
-    `       -H 'Content-Type: application/json' \\`,
-    `       -d '{"assignee":"${escalateTo}"}'`,
-    `  c) Csak EZUTÁN állítsd a kártyát status="waiting"-re (a fenti move-hívással, "waiting" értékkel "done" helyett).`,
+    `     ${helper} kanban-assign ${id} ${escalateTo}`,
+    `  c) Csak EZUTÁN állítsd a kártyát status="waiting"-re:`,
+    `     ${helper} kanban-move ${id} waiting ${target}`,
+    '',
+    'A helper-híváshoz NE használj shell-szintaxist: se pipe-ot, se &&-t, se $(...)-t, se átirányítást -- a jogosultság-ellenőrző az ilyet nem tudja statikusan elemezni, és engedélykérésen akadsz el. A hosszú, többsoros szöveget add EGYETLEN idézőjeles argumentumként, vagy írd "-" helyére és add STDIN-en.',
     isMainAgent
       ? `Ez azért kritikus, mert ${OWNER_NAME} nem tudja kitalálni a dashboardon hogy egy nála maradt/rossz-assignee-jű, homályos kártya rá vár -- explicit átadás + explicit kérdés nélkül a felelősség-váltás elvész.`
       : `FONTOS: ${OWNER_NAME}-hez (az operátorhoz) EGYENESEN NE told át a kártyát, még ha a blokk végül tőle igényel is döntést -- ${MAIN_AGENT_ID} a delegálód, ő triázsol és ő dönti el, hogy tovább kell-e ${OWNER_NAME}-hez eszkalálnia. Ez azért kritikus, mert ${MAIN_AGENT_ID} nem tudja kitalálni a dashboardon hogy egy nála maradt/rossz-assignee-jű kártya rá vár -- explicit átadás + explicit kérdés nélkül a felelősség-váltás elvész.`,
@@ -315,6 +355,8 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/kanban' && method === 'POST') {
     const body = await readBody(req)
     const data = JSON.parse(body.toString())
+    const enumError = checkKanbanEnums(data)
+    if (enumError) { json(res, { error: enumError }, 400); return true }
     const id = randomUUID().slice(0, 8)
     createKanbanCard({ id, ...data })
     json(res, { ok: true, id })
@@ -326,6 +368,8 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanCardMatch[1])
     const body = await readBody(req)
     const data = JSON.parse(body.toString())
+    const enumError = checkKanbanEnums(data)
+    if (enumError) { json(res, { error: enumError }, 400); return true }
     if (updateKanbanCard(id, data)) { json(res, { ok: true }); return true }
     json(res, { error: 'Kártya nem található' }, 404)
     return true
@@ -344,6 +388,12 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanMoveMatch[1])
     const body = await readBody(req)
     const { status, sort_order, actor } = JSON.parse(body.toString())
+    // A move without a status is not a reorder, it is a malformed request: the
+    // UPDATE would write NULL and the CHECK constraint would throw a 500.
+    const moveEnumError = status === undefined || status === null
+      ? `Hiányzó státusz. Érvényes értékek: ${KANBAN_STATUSES.join(', ')}.`
+      : checkKanbanEnums({ status })
+    if (moveEnumError) { json(res, { error: moveEnumError }, 400); return true }
     if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).
