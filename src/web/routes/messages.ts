@@ -36,6 +36,30 @@ import type { RouteContext } from './types.js'
 //      the sub-agent directories; a plain registry lookup would have suppressed every
 //      notification back to the MAIN agent, which is the case this feature exists for.
 //   3. contents that are themselves completion reports -- breaks ping-pong chains.
+// The receipt carries at most this many characters of the closer's `result`.
+export const RESULT_SUMMARY_LIMIT = 500
+
+// Say so when the result did not fit.
+//
+// The cut used to be a bare `result.slice(0, 500)`: no ellipsis, no marker, no error. The
+// recipient saw a sentence ending mid-word and had no way to tell a truncation from a
+// sender who simply stopped typing. Measured on the Acrobot install 2026-08-26: a
+// 1177-character result reached its reader ending at "a hosszu beillesztes nala t", and a
+// 723-character one silently dropped the only actionable sentence it carried -- an
+// instruction that the reader then never acted on.
+//
+// The limit itself stays. A receipt is a receipt, and raising it would only move the cut.
+// What changes is that the cut is now VISIBLE, and the marker names both lengths so the
+// reader knows exactly how much is missing and can ask for the rest.
+export function summarizeResult(result: string): string {
+  if (result.length <= RESULT_SUMMARY_LIMIT) return result
+  return (
+    `${result.slice(0, RESULT_SUMMARY_LIMIT)}\n\n` +
+    `[LEVÁGVA: a teljes eredmény ${result.length} karakter, a nyugta ${RESULT_SUMMARY_LIMIT} ` +
+    `karaktert visz. A hiányzó részt külön üzenetben kell elküldeni.]`
+  )
+}
+
 export function shouldNotifyDelegator(fromAgent: string, toAgent: string, content: string): boolean {
   if (fromAgent === toAgent) return false
   if (!isKnownAgent(fromAgent)) return false
@@ -249,7 +273,7 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
       // they learn the result without polling. See shouldNotifyDelegator for which
       // senders are skipped and why.
       if (done && shouldNotifyDelegator(done.from_agent, done.to_agent, done.content)) {
-        const summary = result ? result.slice(0, 500) : '(nincs eredmény)'
+        const summary = result ? summarizeResult(result) : '(nincs eredmény)'
         createAgentMessage(
           done.to_agent,
           done.from_agent,

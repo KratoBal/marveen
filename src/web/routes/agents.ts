@@ -48,7 +48,7 @@ import {
   KNOWN_VOICE_MODELS,
   type AuthMode,
 } from '../agent-config.js'
-import { readClaudePlans, resolveAgentConfigDir } from '../claude-plans.js'
+import { readClaudePlans, resolveAgentConfigDir, resolveAgentConfigDirForRead } from '../claude-plans.js'
 import {
   readAgentTeam,
   writeAgentTeam,
@@ -483,7 +483,7 @@ function getAgentSummary(name: string): AgentSummary {
     modelProfile: typeof agentModelConfig.modelProfile === 'string' ? agentModelConfig.modelProfile : null,
     modelSource: modelResolution.source,
     modelProfileError: modelResolution.error ?? null,
-    activeModel: running ? readActiveModelFromProjectDir(dir, runningSince ?? undefined, resolveAgentConfigDir(name).configDir ?? undefined) : null,
+    activeModel: running ? readActiveModelFromProjectDir(dir, runningSince ?? undefined, resolveAgentConfigDirForRead(name) ?? undefined) : null,
     runningSince,
     authMode: readAgentAuthMode(name),
     securityProfile: readAgentSecurityProfile(name),
@@ -504,7 +504,7 @@ function getAgentSummary(name: string): AgentSummary {
     hasAvatar: findAvatarForAgent(name) !== null,
     autoRestart: readAutoRestartConfig(name),
     contextGuard: readContextGuardConfig(name),
-    contextTokens: running ? readContextTokensFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined) : null,
+    contextTokens: running ? readContextTokensFromProjectDir(dir, resolveAgentConfigDirForRead(name) ?? undefined) : null,
     needsReauth: reauth.needsReauth,
     reauthReason: reauth.reason,
   }
@@ -700,7 +700,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[] }> = []
+    // `displayName` rides along because the activity cards used to be titled with
+    // the internal id while the pane inside them showed the display name. Measured
+    // 2026-08-24: after nautilus was renamed to Medusa, the agents page showed
+    // "Medusa" and this page showed "nautilus", and the owner read that as an agent
+    // having disappeared. The id stays the address; only the label follows the name.
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[] }> = []
 
     // Main agent runs in the --channels session, not agent-<name>.
     {
@@ -708,6 +713,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const running = mainPane !== null
       entries.push({
         name: MAIN_AGENT_ID,
+        displayName: readAgentDisplayName(MAIN_AGENT_ID) || MAIN_AGENT_ID,
         isMain: true,
         running,
         state: label(running, mainPane),
@@ -729,7 +735,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           : capturePane(agentSessionName(name))
       }
       const state = runState === 'unreachable' ? 'unreachable' : label(running, pane)
-      entries.push({ name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane) })
+      entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane) })
     }
 
     jsonMaybeGzip(req, res, entries)
@@ -808,7 +814,10 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const personaMd = existsSync(personaPath) ? readFileSync(personaPath, 'utf-8') : ''
       const personaText = [claudeMd, personaMd].filter(Boolean).join('\n')
       const currentModel = readAgentModel(name)
-      const contextTokens = readContextTokensFromProjectDir(dir) ?? 0
+      // Was reading with NO config dir at all, so for every auto-provisioned
+      // agent this fed the model suggestion a number from the shared root --
+      // i.e. whatever stale file happened to sit there, or zero.
+      const contextTokens = readContextTokensFromProjectDir(dir, resolveAgentConfigDirForRead(name) ?? undefined) ?? 0
 
       const kanban = kanbanMap.get(name)
       const signals: AgentSignals = {
