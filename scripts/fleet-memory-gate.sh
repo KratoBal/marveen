@@ -33,7 +33,12 @@ set -uo pipefail
 MODE=""; ARG=""; DRY_RUN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --check)   MODE="check"; ARG="${2:-}"; shift 2 ;;
+    # `shift 2` FAILS (and shifts nothing) when only one arg is left, so a bare
+    # `--check` used to spin this loop forever -- the "needs an agent name" guard
+    # further down was unreachable dead code. Measured 2026-08-16: the call hung
+    # past a 120s timeout with no output, which on the fleet-safe-start path looks
+    # exactly like a wedged fleet. Shift defensively instead.
+    --check)   MODE="check"; ARG="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
     --verdict) MODE="verdict"; shift ;;
     --status)  MODE="status"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;

@@ -8,11 +8,34 @@
       "Read(${AGENT_DIR}/**)",
       "Write(${AGENT_DIR}/**)",
       "Edit(${AGENT_DIR}/**)",
+      "Read(/tmp/claude-1000/**)",
+      "Write(/tmp/claude-1000/**)",
       "Read(${HOME}/Downloads/**)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Bash(bash ${HOME}/marveen/scripts/agent-msg.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/fleet-api.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/sync-quarantine-allowlist.sh:*)",
+      "Bash(date:*)",
+      "Bash(bash ${HOME}/marveen/scripts/text-metrics.sh:*)",
+      "Bash(grep:*)",
+      "Bash(/bin/grep:*)",
+      "Bash(head:*)",
+      "Bash(/bin/head:*)",
+      "Bash(/usr/bin/head:*)",
+      "Bash(tail:*)",
+      "Bash(/bin/tail:*)",
+      "Bash(/usr/bin/tail:*)",
+      "Bash(wc:*)",
+      "Bash(/usr/bin/wc:*)",
+      "Bash(sed -n:*)",
+      "Bash(/bin/sed -n:*)",
+      "Bash(cut:*)",
+      "Bash(nl:*)",
+      "Bash(pwd:*)",
+      "Read(${HOME}/marveen/scripts/**)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",
@@ -22,7 +45,8 @@
       "Read(**/.env)",
       "Bash(sudo:*)",
       "Bash(rm:*)",
-      "Bash(curl -X POST:*)"
+      "Bash(curl -X POST:*)",
+      "Bash(bash ${HOME}/marveen/scripts/fb-campaign-draft.sh:*)"
     ]
   }
 }

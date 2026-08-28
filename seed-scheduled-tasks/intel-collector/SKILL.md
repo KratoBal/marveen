@@ -22,8 +22,8 @@ határidő). Egyébként csendes futás: registry + napi napló.
    - "[VERSENYTÁRS NÉV]" (legfrissebb hír)
 
 2. Minden találatnál rövid triage: tartalmaz-e számszerű adatot, bejelentést,
-   határidőt ami a tulajdonost érinti? Ha van helyi LLM (Ollama MCP), az
-   előszűrést delegálhatod oda IGEN/NEM formátumban -- token-takarékos.
+   határidőt ami a tulajdonost érinti? Az előszűrést magad végezd -- helyi
+   LLM-et (Ollama) NEM használunk, nincs telepítve (Balázs döntése 2026-08-18).
 
 3. Csak a releváns rekordokat dolgozd fel. Ha a saját küszöbödet átlépi
    (pl. >X% árelmozdulás) -> Telegram értesítés.

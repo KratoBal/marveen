@@ -12,6 +12,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR" || exit 0   # never block startup on a cd failure
 
+# Fleet users, group and the narrow sudo rule (added 2026-08-22). They live in
+# the CONTAINER filesystem, so `docker compose up -d` -- which recreates the
+# container from the image -- deletes them, and every per-user agent then fails
+# to start with nothing but "Failed to start tmux session". This is the only
+# pre-start hook run-dashboard.sh offers, and it runs as marveen with sudo, so
+# the restore is anchored here rather than in a document nobody reads at boot.
+# Idempotent and non-fatal: on a healthy container it changes nothing, and a
+# failure must never keep the dashboard down.
+if [ -x "./scripts/fleet-bootstrap.sh" ]; then
+  bash ./scripts/fleet-bootstrap.sh --auto-restart-dashboard >&2 2>&1 \
+    || echo "ensure-native-modules: fleet-bootstrap failed, per-user agents may not start" >&2
+fi
+
 # Health check must INSTANTIATE a Database -- better-sqlite3 loads its native
 # binding lazily on `new Database()`, not on require(), so a bare require passes
 # even when the .node file is missing (learned the hard way, 2026-07-03).
