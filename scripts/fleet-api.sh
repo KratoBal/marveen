@@ -140,13 +140,13 @@ CMD="${1:?command required}"; shift || true
 case "$CMD" in
   memory)
     argc_max 4 "$#" "fleet-api.sh memory <agent> <category> - < szoveg.txt \"kulcsszavak\""
-    AGENT="$(arg "${1:?agent required}")"; CAT="$(arg "${2:?category required}")"
-    CONTENT="$(arg "${3:?content required}")"; KEYWORDS="$(arg "${4-}")"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; : "${2:?category required}"; CAT="$(arg "$2")"
+    : "${3:?content required}"; CONTENT="$(arg "$3")"; KEYWORDS="$(arg "${4-}")"
     post /memories "$(json_obj agent_id "$AGENT" category "$CAT" content "$CONTENT" keywords "$KEYWORDS")"
     ;;
   memory-search)
     argc_max 3 "$#" "fleet-api.sh memory-search <agent> \"kulcsszo\" [kategoria]"
-    AGENT="$(arg "${1:?agent required}")"; Q="$(arg "${2:?query required}")"; CAT="${3-}"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; : "${2:?query required}"; Q="$(arg "$2")"; CAT="${3-}"
     Q_ENC="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$Q")"
     P="/memories?agent=${AGENT}&q=${Q_ENC}"
     [ -n "$CAT" ] && P="${P}&category=${CAT}"
@@ -159,7 +159,27 @@ case "$CMD" in
     # tobb argumentumot adott at -- ezert ez arity-orzo, nem idezojel-orzo. Ha tema es torzs kell
     # kulon, a daily-log-now valo hozza (az a HH:MM fejlecet is meri).
     argc_max 2 "$#" "fleet-api.sh daily-log <agent> - < szoveg.txt   (tema+torzs: daily-log-now <agent> \"Tema\" - < szoveg.txt)"
-    AGENT="$(arg "${1:?agent required}")"; CONTENT="$(arg "${2:?content required}")"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; : "${2:?content required}"; CONTENT="$(arg "$2")"
+    # ES EGY MASODIK ORZO, MERT AZ ARITY NEM FOGJA MEG (korall mereseе, 2026-08-31).
+    # Ez az ag NYERS atvitel: a fejlecet a HIVO irja. Az arity-orzo azt nezi, hany
+    # argumentum jott, tehat a helyesen, KETTO argumentummal hivott parancs atmegy --
+    # akkor is, ha a torzs elejere a hivo KEZZEL gepelt egy "## HH:MM" fejlecet.
+    # Korall igy irt delelott begepelt idopontokat a naplojaba: a fajl ep volt, a
+    # tartalom ep volt, csak a MIKOR volt tippelve. A fajl-mtime ertekek (08:32-09:22)
+    # es a bejegyzesek cimkei (13:3x) ot orat tertek el.
+    # A KETTO KOZOTTI KULONBSEG NEM A HASZNALO FEGYELME, HANEM A NEV: a rovidebb,
+    # kezenfekvobb nevu ag az, amelyik NEM meri az idot. Ezert nem eleg dokumentalni.
+    # Amit ez az orzo NEM tesz: nem tiltja a nyers utat. Az kell a korrekcios es a
+    # visszamenoleges bejegyzeshez, ahol a fejlec SZANDEKOSAN nem a mostani ido.
+    # Csak azt az egy alakot zarja ki, amit mertunk: gepelt ora-fejlec a torzs elejen.
+    case "$CONTENT" in
+      '## '[0-9][0-9]:[0-9][0-9]*)
+        echo "FAIL a torzs '## HH:MM' fejleccel kezdodik, es ez az ag NEM meri az idot -- a fejlec az lenne, amit a mondat MEGIRASAKOR hittel, nem a kikuldes ideje." >&2
+        echo "     Hasznald ehelyett:  fleet-api.sh daily-log-now $AGENT \"Tema\" - < szoveg.txt   (az a rendszerorarol belyegez, es megtagadja a kikuldest, ha nem tud merni)" >&2
+        echo "     Ha SZANDEKOSAN mas idopontot irsz (korrekcio, visszamenoleges bejegyzes), ne a torzs ELEJERE tedd a fejlecet: nevezd meg a szovegben, melyik bejegyzest javitja." >&2
+        exit 2
+        ;;
+    esac
     post /daily-log "$(json_obj agent_id "$AGENT" content "$CONTENT")"
     ;;
   daily-log-now)
@@ -174,8 +194,8 @@ case "$CMD" in
     #   fleet-api.sh daily-log-now acrobot "Tema" "A szoveg"
     #   fleet-api.sh daily-log-now acrobot "Tema" - < body.txt
     argc_max 3 "$#" "fleet-api.sh daily-log-now <agent> \"Tema\" - < szoveg.txt"
-    AGENT="$(arg "${1:?agent required}")"; TOPIC="$(arg "${2:?topic required}")"
-    BODY="$(arg "${3:?content required}")"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; : "${2:?topic required}"; TOPIC="$(arg "$2")"
+    : "${3:?content required}"; BODY="$(arg "$3")"
     # NOT `date`: glibc here answers UTC (the Europe/Budapest zone file is an
     # empty read-only bind mount from the host), so `date` is two hours behind.
     # local-now.sh reads Node's tz data and fails rather than guessing.
@@ -194,7 +214,7 @@ ${BODY}")"
     # Ezert a kimenet elso oszlopa a HOSSZ: az arulja el a csonkulast, nem a szoveg. A zaro sor
     # kulon kiirja a legrovidebb bejegyzest, es szol, ha barmelyik 120 karakter alatt van.
     argc_max 3 "$#" "fleet-api.sh daily-log-read <agent> [YYYY-MM-DD] [full]"
-    AGENT="$(arg "${1:?agent required}")"; DATE="${2-}"; MODE="${3-}"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; DATE="${2-}"; MODE="${3-}"
     P="/daily-log?agent=${AGENT}"
     [ -n "$DATE" ] && P="${P}&date=${DATE}"
     get "$P" | LOG_MODE="$MODE" python3 -c '
@@ -228,7 +248,7 @@ if short:
     ;;
   kanban-new)
     argc_max 4 "$#" "fleet-api.sh kanban-new - < cim.txt [status] [assignee] [priority]"
-    TITLE="$(arg "${1:?title required}")"; STATUS="${2:-planned}"; ASSIGNEE="${3:-}"; PRIORITY="${4:-normal}"
+    : "${1:?title required}"; TITLE="$(arg "$1")"; STATUS="${2:-planned}"; ASSIGNEE="${3:-}"; PRIORITY="${4:-normal}"
     post /kanban "$(json_obj title "$TITLE" status "$STATUS" assignee "$ASSIGNEE" priority "$PRIORITY")"
     ;;
   kanban-move)
@@ -248,12 +268,12 @@ if short:
     ;;
   kanban-assign)
     argc_max 2 "$#" "fleet-api.sh kanban-assign <card_id> <assignee>"
-    CARD="${1:?card id required}"; ASSIGNEE="$(arg "${2:?assignee required}")"
+    CARD="${1:?card id required}"; : "${2:?assignee required}"; ASSIGNEE="$(arg "$2")"
     put "/kanban/${CARD}" "$(json_obj assignee "$ASSIGNEE")"
     ;;
   kanban-comment)
     argc_max 3 "$#" "fleet-api.sh kanban-comment <card_id> <author> - < szoveg.txt"
-    CARD="${1:?card id required}"; AUTHOR="$(arg "${2:?author required}")"; CONTENT="$(arg "${3:?content required}")"
+    CARD="${1:?card id required}"; : "${2:?author required}"; AUTHOR="$(arg "$2")"; : "${3:?content required}"; CONTENT="$(arg "$3")"
     post "/kanban/${CARD}/comments" "$(json_obj author "$AUTHOR" content "$CONTENT")"
     ;;
   kanban-comments)
@@ -287,7 +307,7 @@ if short:
     # a tartalom rendes uzenetbe valo. Ugyanaz a fajta orzo, mint az arity-orzo, csak a masik
     # iranyba: ott a tul sok argumentum, itt a tul hosszu nyugta.
     argc_max 2 "$#" "fleet-api.sh message-close <uzenet_id> - < nyugta.txt"
-    ID="${1:?message id required}"; RESULT="$(arg "${2:?result required}")"
+    ID="${1:?message id required}"; : "${2:?result required}"; RESULT="$(arg "$2")"
     LEN="$(RESULT="$RESULT" python3 -c 'import os; print(len(os.environ["RESULT"]))')"
     if [ "$LEN" -gt 500 ]; then
       echo "FAIL: a nyugta $LEN karakter, a hatar 500 -- $((LEN - 500)) karakterrel hosszabb." >&2
@@ -393,7 +413,7 @@ if known and to and to not in known:
 '
     ;;
   messages-sent)
-    AGENT="$(arg "${1:?agent required}")"; LIMIT="${2:-10}"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; LIMIT="${2:-10}"
     get "/messages?limit=500" | MSG_AGENT="$AGENT" MSG_LIMIT="$LIMIT" python3 -c '
 import json, os, sys, time
 agent = os.environ["MSG_AGENT"]; limit = int(os.environ["MSG_LIMIT"])
@@ -441,9 +461,9 @@ if rows:
   # volna, hanem torest. Egy tiltas, ami a normal mukodest vagja el, nem vedelem.
   schedule-new)
     argc_max 6 "$#" "fleet-api.sh schedule-new <nev> \"leiras\" - < prompt.txt \"<cron>\" <agent> [type]"
-    NAME="$(arg "${1:?name required}")"; DESC="$(arg "${2:?description required}")"
-    PROMPT="$(arg "${3:?prompt required}")"; CRON="$(arg "${4:?cron required}")"
-    AGENT="$(arg "${5:?agent required}")"; TYPE="${6:-heartbeat}"
+    : "${1:?name required}"; NAME="$(arg "$1")"; : "${2:?description required}"; DESC="$(arg "$2")"
+    : "${3:?prompt required}"; PROMPT="$(arg "$3")"; : "${4:?cron required}"; CRON="$(arg "$4")"
+    : "${5:?agent required}"; AGENT="$(arg "$5")"; TYPE="${6:-heartbeat}"
     BODY="$(NAME="$NAME" DESC="$DESC" PROMPT="$PROMPT" CRON="$CRON" AGENT="$AGENT" TYPE="$TYPE" python3 -c '
 import json, os
 print(json.dumps({
@@ -461,8 +481,8 @@ print(json.dumps({
   # azt sugallja, hogy allitottunk egy hatarido, holott nem.
   approval-new)
     argc_max 3 "$#" "fleet-api.sh approval-new <agent> <kategoria> - < leiras.txt"
-    AGENT="$(arg "${1:?agent required}")"; CATEGORY="$(arg "${2:?category required}")"
-    DESC="$(arg "${3:?action_description required}")"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; : "${2:?category required}"; CATEGORY="$(arg "$2")"
+    : "${3:?action_description required}"; DESC="$(arg "$3")"
     BODY="$(AGENT="$AGENT" CATEGORY="$CATEGORY" DESC="$DESC" python3 -c '
 import json, os
 print(json.dumps({
@@ -472,7 +492,7 @@ print(json.dumps({
     post "/approvals" "$BODY"
     ;;
   approval-get)
-    ID="$(arg "${1:?approval id required}")"
+    : "${1:?approval id required}"; ID="$(arg "$1")"
     get "/approvals/${ID}" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)

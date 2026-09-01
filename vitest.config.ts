@@ -6,7 +6,13 @@ import { defineConfig, configDefaults } from 'vitest/config'
 // defaults; only carve out the e2e directory.
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, 'tests/smoke/**'],
+    // agents/** is excluded from COLLECTION, not from testing: those are the
+    // sub-agents' own working directories, and under separate OS users some of
+    // them are group-restricted. Without this, vitest's file walk dies with an
+    // EACCES before anything runs -- and the live-install gate below never gets
+    // to print its own message, so the operator sees a permission error instead
+    // of "you are about to test inside a live install". Measured 2026-08-28.
+    exclude: [...configDefaults.exclude, 'tests/smoke/**', 'agents/**'],
     // Hard gates, run in every worker before any test module is imported:
     //  - assert-not-live-install: refuse to run inside a live install (see that
     //    setup file's header for the 2026-07-27 incident it prevents).

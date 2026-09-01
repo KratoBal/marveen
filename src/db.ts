@@ -1750,16 +1750,57 @@ export interface KanbanComment {
   created_at: number
 }
 
-export function listKanbanCards(): KanbanCard[] {
+/**
+ * Archives every `done` card whose updated_at is older than
+ * KANBAN_ARCHIVE_DONE_DAYS. Returns the number of rows archived, so a caller
+ * can log what actually happened instead of assuming.
+ *
+ * THIS FUNCTION WRITES, AND ITS NAME SAYS SO. Until 2026-08-31 this UPDATE was
+ * the FIRST statement inside listKanbanCards(), which meant a plain
+ * `GET /api/kanban` archived cards as a side effect: the dashboard, the
+ * heartbeat and every agent's curl call mutated the board just by reading it,
+ * so the board's state depended on who had looked at it last.
+ *
+ * The sweep itself is deliberate -- config-registry.ts documents it under
+ * KANBAN_ARCHIVE_DONE_DAYS. It was its PLACE that was wrong, not its existence,
+ * which is why this is a move and not a deletion.
+ */
+export function archiveStaleDoneCards(): number {
   const archiveDays = Number(getEffectiveSettingValue('KANBAN_ARCHIVE_DONE_DAYS'))
   const archiveCutoff = Math.floor(Date.now() / 1000) - archiveDays * 86400
-  // Auto-archive done cards older than KANBAN_ARCHIVE_DONE_DAYS days
-  db.prepare(
-    "UPDATE kanban_cards SET archived_at = ? WHERE status = 'done' AND archived_at IS NULL AND updated_at < ?"
-  ).run(Math.floor(Date.now() / 1000), archiveCutoff)
+  const result = db
+    .prepare(
+      "UPDATE kanban_cards SET archived_at = ? WHERE status = 'done' AND archived_at IS NULL AND updated_at < ?"
+    )
+    .run(Math.floor(Date.now() / 1000), archiveCutoff)
+  return result.changes
+}
+
+/** Reads the open board. Writes NOTHING -- the sweep lives in archiveStaleDoneCards(). */
+export function listKanbanCards(): KanbanCard[] {
   return db
     .prepare('SELECT rowid AS seq, * FROM kanban_cards WHERE archived_at IS NULL ORDER BY sort_order ASC')
     .all() as KanbanCard[]
+}
+
+/**
+ * How many cards the open-board listing is NOT showing. Deliberately a COUNT
+ * over the whole table rather than the length of a page: /api/kanban/archived
+ * reports `total: cards.length`, which is the size of a LIMITed page
+ * (KANBAN_ARCHIVED_MAX_ROWS, 500 today) and would silently understate the real
+ * figure the moment the archive outgrows it.
+ */
+export function countArchivedKanbanCards(): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM kanban_cards WHERE archived_at IS NOT NULL')
+    .get() as { n: number }
+  return row.n
+}
+
+export function listKanbanCardsSummary(): { status: string; title: string; assignee: string | null; priority: string; id: string }[] {
+  return db
+    .prepare("SELECT id, title, status, assignee, priority FROM kanban_cards WHERE archived_at IS NULL ORDER BY status, sort_order ASC")
+    .all() as any[]
 }
 
 export function getKanbanCard(id: string): KanbanCard | undefined {

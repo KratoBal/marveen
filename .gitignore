@@ -129,3 +129,11 @@ transcripts/
 # el). A .example vaz viszont kimegy: abbol kap a vevo sajat kontextus-sablont.
 .agents/*
 !.agents/product-marketing.md.example
+
+# Agent handover directory. NEVER commit: this is where agents drop files for
+# each other, and what lands here is not chosen by anyone reviewing a diff.
+# Measured 2026-08-29 (nautilus): it held a 441 KB PostgreSQL dump of the
+# Medusa stage database, untracked but NOT ignored -- one `git add -A` would
+# have committed it. A text search for personal data inside came back empty,
+# but the format is compressed, so that zero proves nothing.
+exchange/

@@ -42,7 +42,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 
 FLEET_GID=1001
 # uid:agent -- the uids are not cosmetic, the files on the bind mount carry them.
-AGENTS="1001:korall 1002:polip 1003:barracuda 1004:murena 1005:nautilus"
+AGENTS="1001:korall 1002:polip 1003:barracuda 1004:murena 1005:nautilus 1006:picasso"
 # gid:group -- one group per secret, exactly the gids the store/ files carry
 # (`ls -l store/` shows them as bare numbers once the groups are gone). The files
 # are 0640 marveen:sec-*, so a missing group does not deny loudly: the agent user
@@ -59,6 +59,10 @@ SEC_MEMBERS_murena="sec-dashboard sec-claude-oauth sec-github sec-expo"
 # nautilus, felvéve 2026-08-24: a lista négy ágenssel készült, ő 08-23-án jött, és
 # a bootstrap ezért egy konténer-újrateremtés után NEM hozta volna vissza a felhasználóját.
 SEC_MEMBERS_nautilus="sec-dashboard sec-claude-oauth sec-github"
+# picasso, felveve 2026-08-30: tervezo agens. Csak a ket alap titok kell neki
+# (dashboard token es OAuth). Se GitHub, se FB, se UNAS, se Google: HTML-t es
+# CSS-t ir a sajat mappajaban, es a sajat munkajarol keszit kepernyokepet.
+SEC_MEMBERS_picasso="sec-dashboard sec-claude-oauth"
 ROUTER_USER=marveen
 SUDOERS=/etc/sudoers.d/fleet-tmux
 DEVDB=/etc/sudoers.d/fleet-devdb
@@ -165,6 +169,24 @@ for pair in $AGENTS; do
   else
     echo "$trule" >> "$tmp"; changed=1
     echo "queued: token-read check rule for $user"
+  fi
+  # Third rule, added 2026-08-28 with Balazs's approval on Discord. The agents
+  # cannot read the channel allowlist (it lives under /home/marveen/.claude), so
+  # when an unknown sender writes to one of them, the only way to settle whether
+  # that sender is paired used to be asking the main agent. On 2026-08-28 the main
+  # agent was the one that was down, so that chain was exactly what was missing.
+  # is-paired.sh answers ONE question with PAROSITOTT or NEM PAROSITOTT, never
+  # prints the list, never extends it, and logs who asked about what.
+  # FIGYELEM, AZ IRANY ITT FORDITOTT a fenti ket szabalyhoz kepest, es ez szandekos:
+  # ott marveen fut AZ AGENSKENT (tmux, token-olvasas), itt viszont AZ AGENS fut
+  # MARVEENKENT, mert az allowlistat marveen olvashatja, nem az agens. Egy masolassal
+  # atvett irany szintaktikailag helyes szabalyt ad, ami sosem sul el.
+  prule="$user ALL=($ROUTER_USER) NOPASSWD: $ROOT/scripts/is-paired.sh"
+  if grep -qF "$user ALL=($ROUTER_USER) NOPASSWD: $ROOT/scripts/is-paired.sh" "$tmp" 2>/dev/null; then
+    echo "ok: is-paired rule present for $user"
+  else
+    echo "$prule" >> "$tmp"; changed=1
+    echo "queued: is-paired rule for $user"
   fi
 done
 if (( changed )); then
@@ -285,7 +307,26 @@ echo
 if (( rc == 0 )); then
   echo "OK: users, group and sudo rules are in place."
   echo "Next, if the agents are down: supervisorctl restart dashboard, then"
-  echo "  for a in korall polip barracuda murena nautilus; do bash /home/marveen/marveen/scripts/agent-to-own-user.sh \$a; done"
+  # A NEVSOR NEM KEZZEL IROTT, ES EZ NEM STILUS. 2026-08-31-ig ez a sor OT agenst
+  # sorolt fel, mikozben a 45. sor AGENTS valtozoja mar hatot ismert: picasso
+  # 2026-08-30-an keletkezett, es a hint nem kovette. Egy visszaallitas, ami ezt a
+  # sort masolja, PONTOSAN azt az agenst hagyta volna le, amelyik a legujabb --
+  # es a gazda mult alkalommal is azert vadaszott terminalokat, mert valaki nem
+  # jott vissza. Ezert a hint ugyanabbol a forrasbol epul, mint az ellenorzes.
+  names=""
+  for pair in $AGENTS; do names="$names ${pair#*:}"; done
+  echo "  for a in${names}; do bash /home/marveen/marveen/scripts/agent-to-own-user.sh \$a; done"
+  # EZ A SOR 2026-08-31 19:26-IG HAZUDOTT, ES ACROBOT MERTE VISSZA. Addig ez a
+  # szkript sajat magat ajanlotta a "ki nem jott vissza" kerdesre. NEM tudja
+  # megvalaszolni: itt csak felhasznalot, csoportot es sudo-szabalyt ellenorzunk,
+  # vagyis azt, hogy el TUDNANK erni az agenst. Azt nem nezzuk, hogy a tmux
+  # munkamenete letezik-e -- egy leallt agens mellett is OK-t irtunk volna.
+  # Ez pontosan az a fajta ellenorzes, ami abban az iranyban nem tud elbukni,
+  # amelyikben szamit. Az agent-pane.sh viszont TENYLEG eleri a munkamenetet, es
+  # csak akkor lep ki nullaval, ha mindegyiket elerte (merve: nem letezo nevre
+  # UNREACHABLE, kilepesi kod 1).
+  echo "Utana ellenorzes (ez mondja meg, KI NEM jott vissza; NEM ez a szkript):"
+  echo "  bash /home/marveen/marveen/scripts/agent-pane.sh --prompts --all"
 else
   echo "CHECK FAILED, see the lines above." >&2
 fi

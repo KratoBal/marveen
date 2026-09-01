@@ -6,10 +6,33 @@
 # mikor keszult a masolat, es MELYIK fejre.
 #
 # MIERT VAN EZ A SZKRIPT (merve 2026-08-27 ejjel):
-# Az agenseknek nincs GitHub-eleresuk, tehat amit egy PR torzserol allitanak,
-# az szuksegszeruen emlekezet. Harom kulon esetben allitottak elavultnak egy
-# torzset, ami friss volt. A megoldas nem az, hogy tobbet magyarazok: a torzs
-# masolata FAJLBAN all, es azt meg tudjak nezni.
+# Harom kulon esetben allitottak az agensek elavultnak egy PR-torzset, ami friss
+# volt. A megoldas nem az, hogy tobbet magyarazok: a torzs masolata FAJLBAN all,
+# es azt barki meg tudja nezni, fuggetlenul attol, mihez van hozzaferese.
+#
+# AZ EREDETI INDOK 2026-08-31 OTA ELAVULT, ES A SZKRIPT MEGIS MARAD.
+# Itt korabban az allt, hogy "az agenseknek nincs GitHub-eleresuk". Ez ma KET
+# agensre NEM IGAZ: a sec-github csoportnak pontosan ket tagja van (agent-murena
+# es agent-nautilus), ok olvassak a tokent, es nautilus 2026-08-31 16:37-kor
+# ezzel nyitotta meg a 292-es PR-t (HTTP 201, a valasz elmentve). Olvasasra is
+# megy: ugyanazzal a tokennel a 290-es torzse HTTP 200-zal jott vissza.
+#
+# A SZKRIPT ATTOL MEG HASZNOS, csak MAS OKBOL: a fajlban allo masolat nem fugg
+# attol, ki melyik csoportban van, es MERT fejlecet visel. Egy elavult INDOK
+# viszont rosszabb a semminel, mert erosebb korlatot iger, mint ami all.
+#
+# ES A KORLAT FAJTAJA ITT NEM MINDEGY (nautilus fogalmazta meg):
+#   a `gh` CLI HIANYZIK          -> azon csak telepites segit
+#   a GitHub API LETEZIK es MEGY -> ez profil- es csoport-fuggo, tehat
+#                                   KERESSEL feloldhato annak, akinek ma nincs
+# Egy tipus nelkuli "nincs GitHub-elerese" a rosszabbikat orokli mindenkire.
+#
+# AMI VISZONT NEM TECHNIKAI KORLAT, HANEM DONTES: a PR NYITASA es a BEOLVASZTAS
+# acrobotnal marad, akkor is, ha ket agens technikailag tudna. Az indok az, hogy
+# a PR nyitasa az a pont, ahol valaki MASNAK kell megneznie az agat: 2026-08-31-en
+# ez ketszer fogott meg valamit (egy duplikatum PR egy mar beolvadt agra, es egy
+# beolvasztasbol kimaradt commit). Ha ez valaha megvaltozik, EZT a bekezdest kell
+# atirni, nem a hozzaferest.
 #
 # ES AMIERT A FEJLEC KOTELEZO (murena kerese, ugyanaznap): fejlec nelkul a
 # fajl FRISSESSEGEROL marad ugyanaz a kerdes, csak eggyel beljebb. Egy fejlec

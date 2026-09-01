@@ -1,6 +1,6 @@
 // kanban 0664aadf: a raw SQL status write that only touches the `status`
 // column (no updated_at) leaves the card's OLD updated_at in place. Since
-// listKanbanCards()'s auto-archive sweep archives 'done' cards purely by
+// archiveStaleDoneCards() archives 'done' cards purely by
 // comparing updated_at to a cutoff, a card that was just moved to 'done'
 // this way looks like it has been sitting untouched for weeks and gets
 // archived on the very next page load -- before anyone sees it.
@@ -14,7 +14,13 @@
 // feature off).
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { initDatabase, getDb, listKanbanCards, getKanbanCard, createKanbanCard } from '../db.js'
+import {
+  initDatabase,
+  getDb,
+  archiveStaleDoneCards,
+  getKanbanCard,
+  createKanbanCard,
+} from '../db.js'
 
 beforeEach(() => {
   initDatabase(':memory:')
@@ -68,7 +74,10 @@ describe('kanban_cards_status_bumps_updated_at trigger', () => {
   })
 })
 
-describe('listKanbanCards auto-archive vs. raw SQL status writes', () => {
+describe('archiveStaleDoneCards vs. raw SQL status writes', () => {
+  // Calls the sweep DIRECTLY. It used to be called through listKanbanCards(),
+  // which no longer writes: routed that way, the tests below would pass no
+  // matter what the sweep does, because nothing would ever archive.
   it('does NOT archive a card moved to done via raw SQL this run, even though its old updated_at predates the cutoff', () => {
     const db = getDb()
     db.prepare(
@@ -79,7 +88,7 @@ describe('listKanbanCards auto-archive vs. raw SQL status writes', () => {
     // The exact shape of the bug: status-only raw SQL write, no updated_at.
     db.prepare("UPDATE kanban_cards SET status = 'done' WHERE id = ?").run('freshly-done')
 
-    listKanbanCards()
+    archiveStaleDoneCards()
 
     expect(getKanbanCard('freshly-done')!.archived_at).toBeNull()
   })
@@ -94,7 +103,7 @@ describe('listKanbanCards auto-archive vs. raw SQL status writes', () => {
        VALUES ('genuinely-old', 'old and done', 'done', 'normal', ?, ?)`
     ).run(OLD, OLD)
 
-    listKanbanCards()
+    archiveStaleDoneCards()
 
     expect(getKanbanCard('genuinely-old')!.archived_at).not.toBeNull()
   })
@@ -102,7 +111,7 @@ describe('listKanbanCards auto-archive vs. raw SQL status writes', () => {
   it('does not archive a done card moved via the production entry point (createKanbanCard + status: done)', () => {
     createKanbanCard({ id: 'prod-done', title: 'created done today', status: 'done' })
 
-    listKanbanCards()
+    archiveStaleDoneCards()
 
     expect(getKanbanCard('prod-done')!.archived_at).toBeNull()
   })

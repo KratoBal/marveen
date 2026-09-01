@@ -53,18 +53,106 @@ fi
 
 FROM="${1:?from required}"; TO="${2:?to required}"; C="${3:?content required (or - for STDIN)}"
 [ "$C" = "-" ] && C="$(cat)"
-# HALASZTAS-SZURO. Balazs allo szabalya: nincs olyan, hogy "majd holnap". Ha valami tenyleg
-# nem mehet most, akkor NEM napszakot nevezunk meg, hanem a VALODI AKADALYT (mire varunk, kitol,
-# mi hianyzik). A szabaly dokumentumban allt, es 2026-08-19 estejen igy is elhangzott tobbszor --
-# ezert kerult eszkozbe. Nem tilt: figyelmeztet, es a stderr-en nevesiti a talalt szot, hogy a
-# kuldo lassa, mit irt le. Kikapcsolas egy adott uzenetre: MSG_ALLOW_DEFER=1.
+# HALASZTAS-JELZO (NEM szuro: az uzenet ELMEGY). Balazs allo szabalya: nincs olyan, hogy "majd
+# holnap". Ha valami tenyleg nem mehet most, akkor NEM napszakot nevezunk meg, hanem a VALODI
+# AKADALYT (mire varunk, kitol, mi hianyzik). A szabaly dokumentumban allt, es 2026-08-19
+# estejen igy is elhangzott tobbszor -- ezert kerult eszkozbe.
+#
+# A NEVE 2026-08-29-ig "szuro" volt, es ez FELREVEZETETT (murena merte): a nev tiltast igert,
+# a viselkedes viszont csak figyelmeztet. Ez maga a nap tanulsaga -- egy orzo, ami szol, de nem
+# allit meg. Itt a NEM-tiltas SZANDEKOS: agensek kozott egy halaszto mondat jelzes, nem hiba, es
+# egy szo-egyezesre alapozott tiltas hamis pozitivokat gyartana ("a holnapi napindito"). Amin
+# viszont valtoztattunk: a figyelmeztetes MOST MAR a zaro sor melle is kikerul, mert a hivo az
+# "OK id=" sort nezi, es a stderr harom sorral folotte egy hosszu kimenetben nem latszik.
+# ES EGY MERT HAMIS POZITIV, AMI A LEGERDEKESEBB FAJTA (acrobot, 2026-08-31 19:47): a jelzo
+# akkor is megszolal, amikor az uzenet eppen VISSZAVONJA a halasztast. Idezni kellett a sajat
+# korabbi mondatomat ("... akkor holnap reggel elso korben"), hogy megnevezzem helyette a
+# valodi akadalyt -- es a szo-egyezes nem tud kulonbseget tenni javaslat es idezet kozott.
+#
+# AKKOR AZT IRTAM IDE, HOGY EZ NEM JAVITANDO. NAUTILUS ESTE MEGMERTE, ES MEGFORDITOTTA AZ
+# ERVET (2026-08-31 22:57). Az en indokom az volt, hogy a hamis pozitiv ara egy elolvasott
+# sor. Az o meresebol viszont az jott ki, hogy nem egy sorrol van szo, hanem egy
+# rendszeressegrol: a jelzo KETSZER sult el egymas utan, es a masodik EPPEN AZ AZ UZENET
+# volt, amelyik az elsot javitotta. Vagyis MINDEN VISSZAVONAS elsuti -- es par kor utan
+# mindenki atlapozza. Egy orzo, amit megszoktunk atlapozni, mar nem orzo. Ez ugyanaz a
+# csalad, mint az "orzo, ami szol es a muvelet vegigmegy", csak eggyel odebb: nem a
+# hallgatas, hanem a folosleges beszed uti ki.
+# EZERT: az IDEZOJELBE vagy backtickbe tett reszek NEM szamitanak. A hasznalat es az emlites
+# kulonbsege ennyi mintaillesztessel megfoghato, es pont a javito uzeneteket engedi at.
+# A jelzo tovabbra sem tilt, es a 2026-08-31 22:53-as valodi halasztasomat (idezojel nelkuli
+# zaro mondat) ez a valtozas TOVABBRA IS elkapja -- ez a kalibracio, nem a szandek.
+#
+# ES EGY HARMADIK ESET, AMIT SZANDEKOSAN NEM JAVITUNK (nautilus merte, 2026-08-31 23:19).
+# A jelzo A SAJAT MUNKA idozitesere valo. Egy mondat, ami jovobeli idopontot EMLIT, de nem
+# halaszt -- peldaul allitas arrol, mikor lesz hasznos egy MAR ELKESZULT lap --, ELSULHET.
+# Ez hamis riasztas, es tudni kell rola: aki tudja, egy masodperc alatt atlapozza; aki nem,
+# az vagy atir egy jo mondatot, vagy megszokja, hogy atlapozza a jelzot.
+# MIERT NEM JAVITJUK: a megkulonboztetes ("a sajat munkam" kontra "barmi mas") mar a mondat
+# ERTELMEZESE lenne, nem mintaillesztes. Egy mintaillesztotol ez nem varhato, es minden
+# tovabbi finomitas kozelebb visz ahhoz a hibaosztalyhoz, amit ez a jelzo epp elkerul.
+# A hamis riasztas ara itt alacsony, mert a mondat ATIRHATO -- es a pontosabb alak
+# rendszerint jobb is: nem "holnap reggel lesz hasznos", hanem "keszen all, a sorrendet a
+# hivo szabja meg".
+# Kikapcsolas egy adott uzenetre: MSG_ALLOW_DEFER=1.
 if [ "${MSG_ALLOW_DEFER:-0}" != "1" ]; then
-  DEFER_HIT="$(printf '%s' "$C" | /bin/grep -oiE 'majd holnap|holnap reggel|reggel csinal|reggel nezz|friss fejjel|kipihen|holnapra hagy' | head -3 | tr '\n' ' ')"
+  DEFER_SCAN="$(printf '%s' "$C" | /bin/sed 's/"[^"]*"/ /g; s/`[^`]*`/ /g')"
+  DEFER_HIT="$(printf '%s' "$DEFER_SCAN" | /bin/grep -oiE 'majd holnap|holnap reggel|reggel csinal|reggel nezz|friss fejjel|kipihen|holnapra hagy' | head -3 | tr '\n' ' ')"
   if [ -n "$DEFER_HIT" ]; then
-    echo "FIGYELEM (halasztas-szuro): az uzenetben halaszto fordulat van -> ${DEFER_HIT}" >&2
+    echo "FIGYELEM (halasztas-jelzo, NEM tilt -- az uzenet el fog menni): halaszto fordulat -> ${DEFER_HIT}" >&2
     echo "  Ha tenyleg nem mehet most, nevezd meg az AKADALYT (kire/mire vartok), ne a napszakot." >&2
     echo "  Ha szandekos: MSG_ALLOW_DEFER=1 elotaggal kuldd ujra." >&2
   fi
+fi
+
+# A KULDES MERT IDEJE, ES MIERT A SZKRIPT TESZI ODA (murena javaslata, 2026-08-31 este).
+#
+# Ma este bevezettunk egy konvenciot: az idopontot tartalmazo mondat melle "MERVE: HH:MM"
+# sort irunk, hogy a szam ne becslesbol jojjon. A konvencio NEHANY ORAN BELUL KETSZER
+# LEVALT arrol, amit garantalni hivatott -- eloszor nalam, aztan murenanal --, mert a
+# cimket ugyanaz a kez irja, amelyik a mondatot, ugyanabban a pillanatban, es SEMMI nem
+# all a ketto kozott. Murena kerdese dontotte el: mi kellene ahhoz, hogy a cimke hamis
+# legyen? Annyi, hogy valaki begepelje meres nelkul. Akadalyozza-e ezt barmi? Nem.
+#
+# Ezert a szam nem a mondat irojatol jon tobbe. Ugyanaz a megoldas, mint a napi naplonal,
+# ahol a daily-log.sh meri a fejlecet kikuldeskor -- ott ez a hiba NULLA esetben fordult
+# elo, ugyanazon a napon, amikor a kezzel irt idopontok 3 es 101 perc kozott csusztak.
+#
+# AMIT EZ NEM OLD MEG, es ezt murena mondta ki: a KULDES ideje nem a MERES ideje. Ha
+# valaki fel oraval korabban mert es most kuld, a szkript szama igaz lesz, a mondate nem.
+# A ketto EGYUTT viszont lathatova teszi az eltérest -- pontosan igy bukott le ma este a
+# 8484-es uzenet, ahol a szerver letrehozasi belyege cafolta a szovegben allo szamot.
+# KET RESET MURENA TALALT A BEVEZETES UTAN PERCEKKEL, A SAJAT BEVEZETO UZENETEMEN.
+#
+# ELSO: a sor teljes ertelme az az EGY allitas, hogy ezt a szamot nem a kuldo keze irta.
+# Ha ugyanezt a sort a kuldo keze is le tudja irni, akkor a FORMA nem hordozza az
+# allitast -- a megkulonboztetes csak a POZICION allna (az utolso ilyen sor a gepe), ami
+# sehol nincs kimondva es egy idezett uzenetben elveszik. Bizonyitek: a bevezeto
+# uzenetemben KET ilyen sor allt, 42 masodperc kulonbseggel, mert az elsot peldakent
+# begepeltem. Ezert a szkript most MEGNEZI a torzset, es ha talal ilyen alaku sort,
+# megjeloli. Nem tagadja meg a kuldest: lathatova teszi.
+#
+# MASODIK: a meres eddig `|| true` mogott allt, es ures ertek eseten a szkript NEM fuzott
+# oda semmit. Vagyis a sor HIANYA ket kulonbozo dolgot jelentett: regi uzenet a funkcio
+# elottrol, VAGY az oramerés elhasalt. Ugyanaz a hiba, mint egy SQL-nel, ahol az ures
+# eredmeny a nullat es a rossz adatbazist egyformán mutatja. Most hiba eseten is kimegy
+# egy sor, tehat a hianynak egyetlen jelentese marad.
+SENT_AT="$("$(dirname "${BASH_SOURCE[0]}")/local-now.sh" full 2>/dev/null || true)"
+PRE_STAMP=""
+if printf '%s' "$C" | /bin/grep -qF -- "--- a kuldes mert ideje:"; then
+  PRE_STAMP="  FIGYELEM: a kuldo torzsében MAR allt ilyen alaku sor, azt NEM a szkript irta."
+  echo "FIGYELEM: a torzsben mar all egy 'a kuldes mert ideje' alaku sor." >&2
+  echo "  A szkript sora az UTOLSO. A korabbi a kuldo sajat szovege, nem mert ertek." >&2
+fi
+if [ -n "$SENT_AT" ]; then
+  C="${C}
+
+--- a kuldes mert ideje: ${SENT_AT} (a szkript merte, nem a kuldo irta)${PRE_STAMP:+
+${PRE_STAMP}}"
+else
+  C="${C}
+
+--- a kuldes idejet NEM sikerult megmerni (a local-now.sh nem adott erteket)${PRE_STAMP:+
+${PRE_STAMP}}"
 fi
 
 [ -r "$TOKEN_FILE" ] || { echo "FAIL: no token file at $TOKEN_FILE"; exit 1; }
@@ -84,7 +172,15 @@ try:
 except Exception:
   print("")' 2>/dev/null)"
   if { [ "$CODE" = "200" ] || [ "$CODE" = "201" ]; } && [ -n "$ID" ]; then
-    echo "OK id=$ID"; exit 0
+    # A halasztas-jelzo a zaro sorra IS kikerul. A stderr-en mar szolt, de a hivo az "OK id="
+    # sort nezi, es egy hosszu kimenetben harom sorral feljebb nem latszik. Az uzenet ettol meg
+    # ELMEGY: ez jelzes, nem tiltas (lasd a jelzo kommentjet fentebb).
+    if [ -n "${DEFER_HIT:-}" ]; then
+      echo "OK id=$ID  [halasztas-jelzo: ${DEFER_HIT}-- az uzenet ELMENT, de nevezd meg az akadalyt]"
+    else
+      echo "OK id=$ID"
+    fi
+    exit 0
   fi
   sleep 1
 done

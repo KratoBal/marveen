@@ -41,13 +41,22 @@ if [ -z "$NODE_BIN" ]; then
     if [ -x "$candidate" ]; then NODE_BIN="$candidate"; break; fi
   done
 fi
+# JAVITVA 2026-09-01 00:10, nautilus merese alapjan. KET NEV VOLT ROSSZ, es a
+# ketto egyutt azt jelentette, hogy ez a szkript NEMAN, token nelkul futott:
+#   - a vault azonosito 'github-fleet-token' volt; a store/vault-bindings.json
+#     szerint a valodi nev 'github-github_token'
+#   - a tartalek fajl 'store/.github-fleet-token' volt; az NEM LETEZIK, a valodi
+#     a 'store/.github-token' (marveen:sec-github, 0640)
+# Mindket ut elbukott, tehat a WARN ag futott -- csak epp STDERR-en, egy idozitett
+# futasban, ahol senki nem olvassa. Ez a mai est visszatero alakja: egy orzo, ami
+# szol, es kozben a muvelet ugy megy tovabb, mintha nem tortent volna semmi.
 if [ -n "$NODE_BIN" ]; then
-  GH_TOKEN="$(printf 'GH_TOKEN=github-fleet-token\n' | "$NODE_BIN" "$INSTALL_DIR/scripts/vault-resolve.mjs" 2>/dev/null | cut -d= -f2- || true)"
+  GH_TOKEN="$(printf 'GH_TOKEN=github-github_token\n' | "$NODE_BIN" "$INSTALL_DIR/scripts/vault-resolve.mjs" 2>/dev/null | cut -d= -f2- || true)"
 fi
-# Legacy fallback: the plaintext file, if the vault could not resolve (e.g. dist
-# not built or node missing). Safe to keep even after the loose file is removed.
-if [ -z "${GH_TOKEN:-}" ] && [ -f store/.github-fleet-token ]; then
-  GH_TOKEN="$(cat store/.github-fleet-token)"
+# Tartalek: a lemezen allo fajl, ha a vault nem oldotta fel (nincs build vagy nincs
+# node). A sec-github csoport tagjai olvashatjak.
+if [ -z "${GH_TOKEN:-}" ] && [ -f store/.github-token ]; then
+  GH_TOKEN="$(cat store/.github-token)"
 fi
 [ -n "${GH_TOKEN:-}" ] && export GH_TOKEN || echo "WARN: no GH_TOKEN (vault+file both empty), gh calls may fail" >&2
 BOT_TOKEN="$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | cut -d= -f2- | tr -d '"'"'"' ')"

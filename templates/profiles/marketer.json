@@ -20,6 +20,8 @@
       "Bash(bash ${HOME}/marveen/scripts/sync-quarantine-allowlist.sh:*)",
       "Bash(date:*)",
       "Bash(bash ${HOME}/marveen/scripts/text-metrics.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/lap-fejlec.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/local-now.sh:*)",
       "Bash(grep:*)",
       "Bash(/bin/grep:*)",
       "Bash(head:*)",
@@ -35,7 +37,24 @@
       "Bash(cut:*)",
       "Bash(nl:*)",
       "Bash(pwd:*)",
-      "Read(${HOME}/marveen/scripts/**)"
+      "Bash(/bin/ls:*)",
+      "Bash(/usr/bin/ls:*)",
+      "Bash(/bin/cat:*)",
+      "Bash(/usr/bin/cat:*)",
+      "Bash(/bin/date:*)",
+      "Bash(/usr/bin/date:*)",
+      "Bash(/usr/bin/grep:*)",
+      "Bash(/bin/wc:*)",
+      "Bash(/bin/cut:*)",
+      "Bash(/usr/bin/cut:*)",
+      "Bash(/bin/nl:*)",
+      "Bash(/usr/bin/nl:*)",
+      "Bash(/bin/pwd:*)",
+      "Bash(/usr/bin/pwd:*)",
+      "Read(${HOME}/marveen/scripts/**)",
+      "Bash(df:*)",
+      "Bash(/bin/df:*)",
+      "Bash(/usr/bin/df:*)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",
@@ -46,7 +65,13 @@
       "Bash(sudo:*)",
       "Bash(rm:*)",
       "Bash(curl -X POST:*)",
-      "Bash(bash ${HOME}/marveen/scripts/fb-campaign-draft.sh:*)"
+      "Bash(bash ${HOME}/marveen/scripts/fb-campaign-draft.sh:*)",
+      "Bash(/bin/sudo:*)",
+      "Bash(/usr/bin/sudo:*)",
+      "Bash(/bin/rm:*)",
+      "Bash(/usr/bin/rm:*)",
+      "Bash(/bin/curl -X POST:*)",
+      "Bash(/usr/bin/curl -X POST:*)"
     ]
   }
 }

@@ -29,6 +29,7 @@ import { startReauthHealer } from './web/reauth-healer.js'
 import { startAutoRestartRunner } from './web/auto-restart-runner.js'
 import { startModelFallbackRunner } from './web/model-fallback-runner.js'
 import { startContextGuardRunner } from './web/context-guard-runner.js'
+import { archiveStaleDoneCards } from './db.js'
 import { startContextRestartGateRunner } from './web/context-restart-gate-runner.js'
 import { collectTokenUsage } from './web/token-usage.js'
 import { logger } from './logger.js'
@@ -411,6 +412,25 @@ export function startWebServer(port = 3420): http.Server {
   const contextGuardInterval = webOnly ? undefined : startContextGuardRunner()
   if (!webOnly) logger.info('Context-guard runner started (5min poll, 4.5min initial delay)')
 
+  // The kanban auto-archive sweep. It used to run inside listKanbanCards(), so
+  // every read of the board archived cards -- see archiveStaleDoneCards().
+  // Hourly is ample for a 30-day threshold, and it makes the board's state
+  // depend on the clock instead of on who happened to open it last.
+  const kanbanArchiveInterval = webOnly
+    ? undefined
+    : setInterval(
+        () => {
+          try {
+            const archived = archiveStaleDoneCards()
+            if (archived > 0) logger.info(`Kanban auto-archive: ${archived} stale done card(s) archived`)
+          } catch (err) {
+            logger.error(`Kanban auto-archive failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        },
+        60 * 60 * 1000,
+      )
+  if (!webOnly) logger.info('Kanban auto-archive sweep started (60min poll)')
+
   if (!webOnly) {
     startContextRestartGateRunner()
     logger.info('Context-restart gate runner started (per-agent poll, 3min initial delay)')
@@ -581,6 +601,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(autoRestartInterval)
     clearInterval(modelFallbackInterval)
     clearInterval(contextGuardInterval)
+    clearInterval(kanbanArchiveInterval)
     clearInterval(approvalTimeoutInterval)
     clearInterval(authSessionSweepInterval)
     clearInterval(updateCheckerInterval)

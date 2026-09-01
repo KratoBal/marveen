@@ -9,7 +9,7 @@ import {
   getKanbanSeqByIdPrefix,
   listLabels, getLabel, createLabel, updateLabel, deleteLabel,
   addLabelToCard, removeLabelFromCard, getLabelsForAllCards, getLabelsForCard,
-  listArchivedKanbanCards,
+  listArchivedKanbanCards, countArchivedKanbanCards,
   revertIdeaFromKanban,
   getHeartbeatKanbanSummary,
   countNewHotMemories,
@@ -227,6 +227,20 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     // everything it needs in a single round trip.
     const labelsByCard = getLabelsForAllCards()
     const cards = listKanbanCards().map((card) => ({ ...card, labels: labelsByCard.get(card.id) ?? [] }))
+    // SAY THAT THIS IS A FILTERED SET. The body stays a bare array on purpose:
+    // the smoke suite, scripts/fleet-api.sh and every agent's documented curl
+    // recipe index into it, so turning it into an object would break all of
+    // them at once. The counts therefore ride in headers, where a caller can
+    // ask for them and nothing that ignores them breaks.
+    //
+    // Without this, a caller who reads 259 cards has no way to learn that 67
+    // more exist behind archived_at -- on 2026-08-31 that gap read as data
+    // loss until the archived endpoint was queried.
+    const archivedCount = countArchivedKanbanCards()
+    res.setHeader('X-Kanban-Filter', 'archived_at IS NULL')
+    res.setHeader('X-Kanban-Returned', String(cards.length))
+    res.setHeader('X-Kanban-Archived', String(archivedCount))
+    res.setHeader('X-Kanban-Total', String(cards.length + archivedCount))
     jsonMaybeGzip(req, res, cards)
     return true
   }

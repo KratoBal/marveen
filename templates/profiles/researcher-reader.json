@@ -1,7 +1,7 @@
 {
   "id": "researcher-reader",
   "label": "Kutató (olvasó eszközökkel)",
-  "description": "Ugyanaz, mint a Kutató, kiegészítve a klasszikus csak-olvasó shell eszközökkel (grep, head, tail, wc, sort, uniq, cut, sed -n, stat, md5sum) és a nevesített elemző helperekkel. Azért létezik külön profilként, mert az általános futtatási jog (python3, awk, jq) tudatosan MARAD tiltva: a jsonl.sh pont azért készült, hogy csoportosítani se kelljen kódot futtatni. Balázs 2026-08-21 08:13-kor hagyta jóvá, kifejezetten a polipra, miután egyetlen éjszaka huszonöt engedélykérés, három hamis session-stuck riasztás és két félórás üzenet-késés keletkezett abból, hogy minden olvasó lépésnél megállt.",
+  "description": "Ugyanaz, mint a Kutató, kiegészítve a klasszikus csak-olvasó shell eszközökkel (grep, head, tail, wc, sort, uniq, cut, sed -n, stat, md5sum) és a nevesített elemző helperekkel. Azért létezik külön profilként, mert az általános futtatási jog (python3, awk, jq) tudatosan MARAD tiltva: a jsonl.sh pont azért készült, hogy csoportosítani se kelljen kódot futtatni. Balázs 2026-08-21 08:13-kor hagyta jóvá, kifejezetten a polipra, miután egyetlen éjszaka huszonöt engedélykérés, három hamis session-stuck riasztás és két félórás üzenet-késés keletkezett abból, hogy minden olvasó lépésnél megállt. 2026-08-28: Balazs jovahagyta (Discord, Veletek szal, 11:40, 'jovahagyom') az echo felvetelet es a cut, wc, sort, uniq, cat, ls TELJES UTVONALAS alakjat -- polip aznap delelott negyszer allt meg olvaso parancson a sajat mappajaban, mert a lista ezeket csak rovid neven tartalmazta, o viszont teljes utvonalat hasznal. Uj kepesseg NEM keletkezik, ugyanaz a parancs szerepel a masik neven is.",
   "permissionMode": "strict",
   "filesystem": {
     "allow": [
@@ -32,9 +32,14 @@
       "Bash(bash ${HOME}/marveen/scripts/fleet-api.sh:*)",
       "Bash(bash ${HOME}/marveen/scripts/sync-quarantine-allowlist.sh:*)",
       "Bash(bash ${HOME}/marveen/scripts/local-now.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/lap-fejlec.sh:*)",
       "Bash(bash ${HOME}/marveen/scripts/jsonl.sh:*)",
       "Bash(bash ${HOME}/marveen/scripts/unas.sh:*)",
       "Bash(bash ${HOME}/marveen/scripts/text-metrics.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/findfiles.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/baseline-delta.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/baseline-onteszt.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/delta-parositatlan-ellenorzes.sh:*)",
       "Bash(date:*)",
       "Bash(/bin/head:*)",
       "Bash(/usr/bin/head:*)",
@@ -43,7 +48,35 @@
       "Bash(/usr/bin/wc:*)",
       "Bash(/bin/sed -n:*)",
       "Bash(nl:*)",
-      "Bash(pwd:*)"
+      "Bash(pwd:*)",
+      "Bash(echo:*)",
+      "Bash(/bin/cut:*)",
+      "Bash(/usr/bin/cut:*)",
+      "Bash(/bin/wc:*)",
+      "Bash(/bin/sort:*)",
+      "Bash(/usr/bin/sort:*)",
+      "Bash(/bin/uniq:*)",
+      "Bash(/usr/bin/uniq:*)",
+      "Bash(/bin/cat:*)",
+      "Bash(/usr/bin/cat:*)",
+      "Bash(/bin/ls:*)",
+      "Bash(/usr/bin/ls:*)",
+      "Bash(/usr/bin/grep:*)",
+      "Bash(/bin/stat:*)",
+      "Bash(/usr/bin/stat:*)",
+      "Bash(/bin/md5sum:*)",
+      "Bash(/usr/bin/md5sum:*)",
+      "Bash(/bin/date:*)",
+      "Bash(/usr/bin/date:*)",
+      "Bash(/bin/nl:*)",
+      "Bash(/usr/bin/nl:*)",
+      "Bash(/bin/pwd:*)",
+      "Bash(/usr/bin/pwd:*)",
+      "Bash(/bin/echo:*)",
+      "Bash(/usr/bin/echo:*)",
+      "Bash(df:*)",
+      "Bash(/bin/df:*)",
+      "Bash(/usr/bin/df:*)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",
@@ -55,7 +88,15 @@
       "Bash(rm:*)",
       "Bash(curl -X POST:*)",
       "Bash(git push:*)",
-      "Bash(bash ${HOME}/marveen/scripts/fb-campaign-draft.sh:*)"
+      "Bash(bash ${HOME}/marveen/scripts/fb-campaign-draft.sh:*)",
+      "Bash(/bin/sudo:*)",
+      "Bash(/usr/bin/sudo:*)",
+      "Bash(/bin/rm:*)",
+      "Bash(/usr/bin/rm:*)",
+      "Bash(/bin/curl -X POST:*)",
+      "Bash(/usr/bin/curl -X POST:*)",
+      "Bash(/bin/git push:*)",
+      "Bash(/usr/bin/git push:*)"
     ]
   }
 }

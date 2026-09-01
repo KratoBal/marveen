@@ -30,23 +30,35 @@ interface AgentTranscriptSource {
 // fixture. Production callers pass nothing.
 export function discoverAgentSources(projectRootOverride?: string): AgentTranscriptSource[] {
   const sources: AgentTranscriptSource[] = []
-  if (!existsSync(PROJECTS_DIR)) return sources
-  const mainDirName = encodeProjectPath(PROJECT_ROOT)
-  for (const entry of readdirSync(PROJECTS_DIR)) {
-    const full = join(PROJECTS_DIR, entry)
-    let stat
-    try { stat = statSync(full) } catch { continue }
-    if (!stat.isDirectory()) continue
+  // A MISSING SHARED ROOT SKIPS THE SHARED LOOP, NOT THE WHOLE FUNCTION.
+  // This used to be `if (!existsSync(PROJECTS_DIR)) return sources`, which left
+  // the isolated branch below unreachable whenever ~/.claude/projects did not
+  // exist -- a fresh install, or a fleet where every agent has already been
+  // migrated to its own OS user. There the collector reported ZERO sources
+  // while the isolated agents were actively writing transcripts: exactly the
+  // silent blindness the isolated branch was added to end.
+  // Measured 2026-08-28 by murena: under a HOME without ~/.claude/projects the
+  // function returned an empty array even with a fully populated isolated
+  // fixture. In production the shared root exists, so this changes nothing
+  // there -- which is why it went unnoticed.
+  if (existsSync(PROJECTS_DIR)) {
+    const mainDirName = encodeProjectPath(PROJECT_ROOT)
+    for (const entry of readdirSync(PROJECTS_DIR)) {
+      const full = join(PROJECTS_DIR, entry)
+      let stat
+      try { stat = statSync(full) } catch { continue }
+      if (!stat.isDirectory()) continue
 
-    // sanitizeAgentName() allows [a-z0-9-], so the old /([a-z]+)$/ silently
-    // skipped every agent with a digit or a hyphen in its name -- the whole
-    // per-project worker fleet (davinci-ocura, vermeer-fressa, ...) never
-    // appeared in the token monitor at all. Not zero usage: no rows.
-    const agentMatch = entry.match(/-agents-([a-z0-9-]+)$/)
-    if (agentMatch) {
-      sources.push({ agent: agentMatch[1], projectDir: full })
-    } else if (entry === mainDirName) {
-      sources.push({ agent: MAIN_AGENT_ID, projectDir: full })
+      // sanitizeAgentName() allows [a-z0-9-], so the old /([a-z]+)$/ silently
+      // skipped every agent with a digit or a hyphen in its name -- the whole
+      // per-project worker fleet (davinci-ocura, vermeer-fressa, ...) never
+      // appeared in the token monitor at all. Not zero usage: no rows.
+      const agentMatch = entry.match(/-agents-([a-z0-9-]+)$/)
+      if (agentMatch) {
+        sources.push({ agent: agentMatch[1], projectDir: full })
+      } else if (entry === mainDirName) {
+        sources.push({ agent: MAIN_AGENT_ID, projectDir: full })
+      }
     }
   }
 

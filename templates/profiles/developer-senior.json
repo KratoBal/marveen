@@ -15,7 +15,21 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git push origin main:*)",
-      "Bash(git push origin master:*)"
+      "Bash(git push origin master:*)",
+      "Bash(/bin/sudo:*)",
+      "Bash(/usr/bin/sudo:*)",
+      "Bash(/bin/rm -rf ${HOME}:*)",
+      "Bash(/usr/bin/rm -rf ${HOME}:*)",
+      "Bash(/bin/rm -rf /:*)",
+      "Bash(/usr/bin/rm -rf /:*)",
+      "Bash(/bin/git push --force:*)",
+      "Bash(/usr/bin/git push --force:*)",
+      "Bash(/bin/git push -f:*)",
+      "Bash(/usr/bin/git push -f:*)",
+      "Bash(/bin/git push origin main:*)",
+      "Bash(/usr/bin/git push origin main:*)",
+      "Bash(/bin/git push origin master:*)",
+      "Bash(/usr/bin/git push origin master:*)"
     ]
   }
 }

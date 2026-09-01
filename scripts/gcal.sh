@@ -35,9 +35,25 @@ die() { echo "FAIL $*" >&2; exit 1; }
 
 cmd="${1:-}"; shift || true
 
+# TOBB FIOK, EGY SZKRIPT. A GC_ACCOUNT kornyezeti valtozo valasztja ki, melyik
+# fiokrol van szo; alapertelmezesben az info@ cim, mert az volt itt eloszor.
+#
+# MIERT KELLETT: 2026-08-30-ig a refresh token EGYETLEN fix helyre ment
+# (store/.gsuite-refresh-token). Ha egy MASODIK fiokot (ticket@) ugyanezzel a
+# szkripttel engedelyeztunk volna, a mentes FELULIRJA az elsot, es masnap reggel
+# a napindito email- es naptar-szakasza allt volna le. A hiba ott jelentkezett
+# volna, ahol semmi koze nincs hozza: ez a legdragabb fajta.
+GC_ACCOUNT="${GC_ACCOUNT:-info}"
+export GC_ACCOUNT
+case "$GC_ACCOUNT" in
+  info) RT_PATH="$ROOT/store/.gsuite-refresh-token" ;;
+  *)    RT_PATH="$ROOT/store/.gsuite-refresh-token-$GC_ACCOUNT" ;;
+esac
+export GC_RT_PATH="$RT_PATH"
+
 case "$cmd" in
   auth-url|auth-code) ;;
-  check|events|mail) [ -f "$ROOT/store/.gsuite-refresh-token" ] || die "nincs refresh token. Eloszor: gcal.sh auth-url, majd gcal.sh auth-code <kod>" ;;
+  check|events|mail) [ -f "$RT_PATH" ] || die "nincs refresh token ehhez a fiokhoz ($GC_ACCOUNT): $RT_PATH. Eloszor: GC_ACCOUNT=$GC_ACCOUNT gcal.sh auth-url, majd auth-code <kod>" ;;
   *) die "ismeretlen parancs: '${cmd}' -- auth-url | auth-code | check | events | mail" ;;
 esac
 
@@ -48,12 +64,24 @@ ROOT = os.environ["GC_ROOT"]
 CMD = os.environ["GC_CMD"]
 STORE = os.path.join(ROOT, "store")
 REDIRECT = "http://localhost:8765/"
-SCOPES = " ".join([
-    "https://www.googleapis.com/auth/calendar.events",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.send",
-])
-RT_FILE = ".gsuite-refresh-token"
+ACCOUNT = os.environ.get("GC_ACCOUNT", "info")
+
+# A JOGOSULTSAG FIOKONKENT KULONBOZIK, ES EZ SZANDEKOS.
+# info@ : naptar + level olvasas + level kuldes, mert a napindito ezt hasznalja.
+# minden mas fiok (ticket@) : CSAK OLVASAS. A hibajegy-ertesitesek kuldese a
+# hibajegy-rendszer dolga lesz, sajat kulccsal, nem a miénkkel: aki olvas, annak
+# nem kell tudnia irni is.
+if ACCOUNT == "info":
+    SCOPES = " ".join([
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+    ])
+else:
+    SCOPES = "https://www.googleapis.com/auth/gmail.readonly"
+
+RT_PATH = os.environ.get("GC_RT_PATH") or os.path.join(STORE, ".gsuite-refresh-token")
+RT_FILE = os.path.basename(RT_PATH)
 
 
 def die(msg):
@@ -149,12 +177,21 @@ elif CMD == "check":
     # az esemeny-vegpont ugyanazzal a tokennel mukodik. Ha az ellenorzes a
     # metaadatot nezi, egy MUKODO bekotest jelent hibasnak -- pont az a fajta
     # hamis negativ, ami miatt valaki ujra-jovahagyast kerne feleslegesen.
-    cal = get("https://www.googleapis.com/calendar/v3/calendars/primary/events"
-              "?maxResults=1&singleEvents=true&orderBy=startTime", t)
-    if cal.get("__http"):
-        print("NAPTAR  HIBA %s: %s" % (cal["__http"], cal["__body"]))
+    # A NAPTART CSAK OTT NEZZUK, AHOL VAN RA JOGOSULTSAG. A ticket@ fiok
+    # SZANDEKOSAN csak levelet olvashat, tehat ott a naptar-hivas 403-at adna, es
+    # az ellenorzes minden korben pirosnak latszana egy TOKELETESEN mukodo
+    # bekotesre. Egy orzo, ami a helyes allapotra panaszkodik, elobb-utobb
+    # kikapcsoltatja magat, vagy ami rosszabb: valaki "megjavitja" a jogosultsagot
+    # es kitagitja. (Merve 2026-08-30, a ticket@ bekotesekor.)
+    if ACCOUNT == "info":
+        cal = get("https://www.googleapis.com/calendar/v3/calendars/primary/events"
+                  "?maxResults=1&singleEvents=true&orderBy=startTime", t)
+        if cal.get("__http"):
+            print("NAPTAR  HIBA %s: %s" % (cal["__http"], cal["__body"]))
+        else:
+            print("NAPTAR  OK | naptar: %s | idozona: %s" % (cal.get("summary"), cal.get("timeZone")))
     else:
-        print("NAPTAR  OK | naptar: %s | idozona: %s" % (cal.get("summary"), cal.get("timeZone")))
+        print("NAPTAR  KIHAGYVA | a(z) '%s' fiok szandekosan csak levelet olvashat" % ACCOUNT)
     prof = get("https://gmail.googleapis.com/gmail/v1/users/me/profile", t)
     if prof.get("__http"):
         print("GMAIL   HIBA %s: %s" % (prof["__http"], prof["__body"]))
