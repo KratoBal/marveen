@@ -767,6 +767,31 @@ export function ensureSharedClaudeOnboarded(dotClaudePath: string = join(homedir
 // symlinked homes) since Claude Code keys trust by the resolved path. Write is
 // atomic and only performed on actual change, so a live Claude Code process
 // racing us never sees a torn file and an already-stamped launch is a no-op.
+// The two stamps below REPLACE the inode (atomicWriteFileSync = tmp + rename),
+// so the mode they pass is the mode the NEW file gets, and its owner is whoever
+// ran the router -- not the agent. A hard-coded 0600 therefore hands a per-user
+// agent a config it cannot read, Claude Code writes a brand-new ~423-byte
+// profile over it, and every consent flag the stamp just wrote is gone: the
+// agent lands on the login picker with a valid token in its environment.
+//
+// Measured end to end on polip, 2026-09-01 21:17, four states in three seconds:
+//   t+0  43840 B  0660 marveen:fleet   <- restored config
+//   t+3  43925 B  0600 marveen:fleet   <- the stamp, group bit dropped
+//   t+3    343 B  0600 agent-polip     <- Claude Code, fresh profile
+//   t+3    423 B  0600 agent-polip
+// Same shape as the symlink chain fixed at 19:55 the same day, one write later;
+// writeJsonAtomic above already documents the hazard and guards it with
+// `groupShared`, but these two call sites bypass writeJsonAtomic entirely.
+//
+// Carrying the existing mode over never WIDENS exposure: it keeps whatever the
+// file already had, and a file that does not exist yet still gets 0600. The two
+// mistakes are not the same size -- a preserved group bit costs nothing here
+// (the group is `fleet`, which is the agent itself), a dropped one costs the
+// agent its session.
+function preservedConfigMode(path: string): number {
+  try { return statSync(path).mode & 0o777 } catch { return 0o600 }
+}
+
 export function stampProjectTrustForDir(dotClaudePath: string, projectDir: string): boolean {
   try {
     let data: Record<string, unknown> = {}
@@ -799,7 +824,7 @@ export function stampProjectTrustForDir(dotClaudePath: string, projectDir: strin
     }
     if (!changed) return false
     data.projects = projects
-    atomicWriteFileSync(dotClaudePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+    atomicWriteFileSync(dotClaudePath, JSON.stringify(data, null, 2) + '\n', { mode: preservedConfigMode(dotClaudePath) })
     logger.info({ dotClaudePath, projectDir }, 'project-trust: stamped folder-trust consent for agent dir')
     return true
   } catch (err) {
@@ -847,7 +872,7 @@ export function stampFableOverageConsent(dotClaudePath: string): boolean {
       : {}
     if (consent[key] === true) return false
     data.fableOverageConsentV2 = { ...consent, [key]: true }
-    atomicWriteFileSync(dotClaudePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+    atomicWriteFileSync(dotClaudePath, JSON.stringify(data, null, 2) + '\n', { mode: preservedConfigMode(dotClaudePath) })
     logger.info({ dotClaudePath }, 'fable-consent: pre-stamped fableOverageConsentV2 (prevents the usage-credit model-switch dialog)')
     return true
   } catch (err) {
