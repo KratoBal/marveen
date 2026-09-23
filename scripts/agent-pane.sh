@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ANSWERS: Mit csinal EPPEN egy flotta-agens: a tmux panelje, a helyes helyrol olvasva. A 'running' allapot nem ez.
 # agent-pane.sh [--prompts] <agent> | [--prompts] --all
 #
 # Capture a fleet agent's tmux pane FROM THE RIGHT PLACE, and fail loudly when

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ANSWERS: Mit mutatnak a Facebook oldal es a posztok szamai (csak olvasas).
 # fb-insights.sh -- narrow, allowlist-friendly wrapper around the Facebook Graph API,
 # READ-ONLY, for Page Insights.
 #

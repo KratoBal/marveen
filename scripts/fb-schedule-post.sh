@@ -9,6 +9,7 @@
 #
 # Usage:
 #   fb-schedule-post.sh photo <image> <textfile> <unix_time>   create a scheduled photo post
+#   fb-schedule-post.sh photos <textfile> <unix_time> <img> [img...]  several photos, one post
 #   fb-schedule-post.sh list                                   list the scheduled posts
 #   fb-schedule-post.sh show <post_id>                         one scheduled post
 #   fb-schedule-post.sh settext <post_id> <textfile>           replace the text of a scheduled post
@@ -94,6 +95,80 @@ with open(tmp, "w") as fh:
 os.replace(tmp, path)
 print("feljegyezve a feltoltes ideje:", path)
 PY
+    ;;
+  photos)
+    # TOBB KEP EGY IDOZITETT BEJEGYZESBEN.
+    #
+    # Miert kulon ag, es miert nem bovitettem a `photo`-t: a `photo` hivasi
+    # alakja (kep, szoveg, ido) mar hasznalatban van, es egy valtozo hosszu
+    # argumentumlista a VEGERE kell, kulonben a regi alak csendben mast jelent.
+    # Ugyanaz a csalad, mint a helperek arity-orzoje: aki a regi sorrendet
+    # gepeli be, ne rossz helyre tegye a kepet.
+    #
+    # A kockazat, ami tobb kepnel NAGYOBB, mint egynel: ha a feed-hivas elbukik,
+    # MINDEN feltoltott kep arvan marad, nem csak egy. Ezert a hibaag mind
+    # felsorolja, egyenkent torolheto azonositoval.
+    TXT="${2:-}"; WHEN="${3:-}"; shift 3 2>/dev/null || true
+    [ -f "$TXT" ] || die "nincs ilyen szovegfajl: $TXT"
+    [ -n "$WHEN" ] || die "hianyzik az idopont (unix time)"
+    [ "$#" -ge 1 ] || die "adj meg legalabb egy kepet"
+    case "$WHEN" in ''|*[!0-9]*) die "a datum unix idobelyeg legyen: $WHEN";; esac
+    for IMG in "$@"; do [ -f "$IMG" ] || die "nincs ilyen kep: $IMG"; done
+    NOW=$(date +%s)
+    [ "$WHEN" -gt $((NOW + 600)) ] || die "az idopont tul kozeli: a Facebook legalabb 10 percet koetel"
+    [ "$WHEN" -lt $((NOW + 2588400)) ] || die "az idopont tul tavoli: a Facebook 30 napnal kevesebbet enged (merve: 30 nap mar elbukik, 29 nap megy)"
+    IDS=""
+    ATTACH=()
+    N=0
+    for IMG in "$@"; do
+      PHOTO_JSON=$(curl -s -X POST "$API/$PAGE/photos" \
+        -F "access_token=$TOKEN" \
+        -F "published=false" \
+        -F "source=@$IMG")
+      PHOTO_ID=$(printf '%s' "$PHOTO_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+      if [ -z "$PHOTO_ID" ]; then
+        echo "A kep feltoltese nem sikerult: $IMG" >&2
+        printf '%s\n' "$PHOTO_JSON" | scrub >&2
+        [ -n "$IDS" ] && echo "MAR FELTOLTOTT, ARVA KEPEK: $IDS" >&2
+        exit 1
+      fi
+      echo "kep feltoltve (nem publikalt): $IMG -> $PHOTO_ID"
+      ATTACH+=(-F "attached_media[$N]={\"media_fbid\":\"$PHOTO_ID\"}")
+      IDS="$IDS $PHOTO_ID"
+      N=$((N + 1))
+    done
+    POST_JSON=$(curl -s -X POST "$API/$PAGE/feed" \
+      -F "access_token=$TOKEN" \
+      -F "published=false" \
+      -F "scheduled_publish_time=$WHEN" \
+      "${ATTACH[@]}" \
+      -F "message=<$TXT")
+    POST_ID=$(printf '%s' "$POST_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+    if [ -z "$POST_ID" ]; then
+      echo "Az idozitett bejegyzes NEM jott letre. ARVAN MARADT KEPEK:$IDS" >&2
+      echo "Torles egyenkent: fb-schedule-post.sh delete <id>" >&2
+      printf '%s\n' "$POST_JSON" | scrub >&2
+      exit 1
+    fi
+    printf '%s\n' "$POST_JSON" | scrub
+    # Ugyanaz a fofok, mint a `photo` again: a feltoltes VALODI ideje csak itt
+    # ismerheto meg, mert a Graph API egy idozitett bejegyzesnel a created_time
+    # mezoben az IDOZITETT idot adja vissza.
+    python3 - "$ROOT/store/fb-scheduled-uploads.json" "$POST_ID" "$NOW" "$WHEN" <<'LEDGER'
+import json, sys, os
+path, post_id, uploaded, scheduled = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+try:
+    with open(path) as fh:
+        led = json.load(fh)
+except Exception:
+    led = {}
+led[post_id] = {"uploaded_at": uploaded, "scheduled_publish_time": scheduled}
+tmp = path + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(led, fh, indent=2)
+os.replace(tmp, path)
+print("feljegyezve a feltoltes ideje:", path)
+LEDGER
     ;;
   delete)
     ID="${2:-}"; [ -n "$ID" ] || die "hianyzik az id"

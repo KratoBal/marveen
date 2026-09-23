@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
+# ANSWERS: Tudok-e HELYBEN integracios tesztet futtatni? (van-e postgres/redis, es fut-e)
 # Local development database for the fleet container.
 #
-# Why this exists: the acropora-os working copies carry a .env whose
+# Why this exists: an acropora-os working copy MAY carry a .env whose
 # DATABASE_URL points at the LIVE database, so "just run the app" is not a
-# safe instruction. This script runs a PostgreSQL 16 (same major version the
+# safe instruction. Check before you trust either half of that sentence:
+# measured 2026-09-01 13:52, nautilus's working copy had NO .env at all (not
+# at the root, not under packages/database, not under apps/api), so the
+# warning described a state that was not theirs. A header that overstates is
+# read once and discounted afterwards, which is how a real warning dies.
+#
+# This script runs a PostgreSQL 16 (same major version the
 # CI workflow uses) and a Redis on localhost inside this container, with a
 # database that exists only here.
 #
@@ -29,31 +36,67 @@ Usage: dev-db.sh <command>
 EOF
 }
 
-pg_running() { sudo -u postgres "$PG_BIN/pg_isready" -q -h 127.0.0.1 2>/dev/null; }
-redis_running() { redis-cli ping >/dev/null 2>&1; }
+# HAROM VILAG, EGY MONDAT -- ES EDDIG MIND A HAROM "DOWN" VOLT (sajat meres,
+# 2026-09-22). A postgres es a redis ELTUNT ebbol a konteneribol (a 09-01-i
+# ujraletrehozas vitte el), a sudoers szabalyok viszont TULELTEK: a
+# `/usr/bin/pg_ctlcluster` NOPASSWD joga ma is all, a binaris nem letezik.
+#
+# ES A HIBAUZENET EZT ELREJTI, mert a SZO SZERINTI ALAKON mulik:
+#
+#   sudo pg_ctlcluster 16 main start     ->  "sudo: a password is required"
+#   sudo -n /usr/bin/pg_ctlcluster ...   ->  "sudo: /usr/bin/...: command not found"
+#
+# Ugyanaz a hianyzo fajl. Rovid alaknal a sudo nem tudja feloldani a nevet, tehat
+# EGYETLEN szabalyra sem illeszkedik, es a vegen jelszot ker -- vagyis egy TELEPITESI
+# hiany JOGOSULTSAGI hibakent jelenik meg. Aki ezt latja, sudo jogot fog kerni ahhoz,
+# ami nincs feltelepitve. A szkript ezert a TELJES UTVONALAT hasznalja mindenhol.
+#
+# A regi `pg_running` a sudo hibajat 2>/dev/null-ba nyelte, tehat a "nincs telepitve",
+# a "nincs jogom megkerdezni" es a "tenyleg all" mind ugyanazt a sort adta.
+have() { [ -x "$1" ]; }
+
+PG_CTL=/usr/bin/pg_ctlcluster
+PG_ISREADY="$PG_BIN/pg_isready"
+REDIS_SERVER=/usr/bin/redis-server
+REDIS_CLI=/usr/bin/redis-cli
+
+pg_installed() { have "$PG_CTL" && have "$PG_ISREADY"; }
+redis_installed() { have "$REDIS_SERVER" && have "$REDIS_CLI"; }
+pg_running() { pg_installed && sudo -n -u postgres "$PG_ISREADY" -q -h 127.0.0.1 2>/dev/null; }
+redis_running() { redis_installed && "$REDIS_CLI" ping >/dev/null 2>&1; }
 
 case "${1:-}" in
   start)
-    pg_running || sudo pg_ctlcluster 16 main start
-    redis_running || sudo redis-server /etc/redis/redis.conf --daemonize yes
+    hiany=0
+    pg_installed || { echo "postgres: NINCS TELEPITVE ($PG_CTL hianyzik) -- a sudo jog megvan, a binaris nem. Ez TELEPITESI kerdes, sudo nem oldja meg." >&2; hiany=1; }
+    redis_installed || { echo "redis:    NINCS TELEPITVE ($REDIS_SERVER hianyzik) -- ugyanaz." >&2; hiany=1; }
+    [ "$hiany" -eq 0 ] || exit 3
+    pg_running || sudo -n "$PG_CTL" 16 main start
+    redis_running || sudo -n "$REDIS_SERVER" /etc/redis/redis.conf --daemonize yes
     sleep 1
     "$0" status
     ;;
   stop)
-    sudo pg_ctlcluster 16 main stop || true
-    redis-cli shutdown nosave >/dev/null 2>&1 || true
+    pg_installed && sudo -n "$PG_CTL" 16 main stop
+    redis_installed && "$REDIS_CLI" shutdown nosave >/dev/null 2>&1
     echo "stopped"
     ;;
   status)
-    if pg_running; then
-      echo "postgres: UP   $(sudo -u postgres psql -tAc 'select version();' | cut -d, -f1)"
+    # A HAROM ALLAPOT KULON SZOVAL MEGY KI. Egy "DOWN", ami a hianyt is jelenti,
+    # nem allapotjelzes, hanem talalgatasra biztatas.
+    if ! pg_installed; then
+      echo "postgres: NINCS TELEPITVE   ($PG_CTL nem letezik; a sudoers szabaly TULELTE a binarist)"
+    elif pg_running; then
+      echo "postgres: UP   $(sudo -n -u postgres psql -tAc 'select version();' | cut -d, -f1)"
     else
-      echo "postgres: DOWN"
+      echo "postgres: ALL  (telepitve van, de nem fut -- 'dev-db.sh start')"
     fi
-    if redis_running; then
-      echo "redis:    UP   $(redis-cli info server | /bin/grep -m1 redis_version | tr -d '\r')"
+    if ! redis_installed; then
+      echo "redis:    NINCS TELEPITVE   ($REDIS_SERVER nem letezik)"
+    elif redis_running; then
+      echo "redis:    UP   $("$REDIS_CLI" info server | /bin/grep -m1 redis_version | tr -d '\r')"
     else
-      echo "redis:    DOWN"
+      echo "redis:    ALL  (telepitve van, de nem fut -- 'dev-db.sh start')"
     fi
     ;;
   url)

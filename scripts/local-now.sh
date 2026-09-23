@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ANSWERS: Mennyi a pontos budapesti ido, es megtagadja a valaszt, ha a zonafajl hazudik.
 # Print the current Europe/Budapest wall-clock time, and refuse to print a wrong one.
 #
 # Why this exists: `date` here answers from glibc, which reads

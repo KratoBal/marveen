@@ -225,7 +225,7 @@ elif CMD == "mail":
     hours = int(a[0]) if a else 12
     t = access_token()
     after = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
-    q = urllib.parse.urlencode({"q": "after:%d" % after, "maxResults": "50"})
+    q = urllib.parse.urlencode({"q": "in:inbox after:%d" % after, "maxResults": "50"})
     r = get("https://gmail.googleapis.com/gmail/v1/users/me/messages?" + q, t)
     if r.get("__http"):
         die("HTTP %s: %s" % (r["__http"], r["__body"]))

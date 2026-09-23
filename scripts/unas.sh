@@ -1,10 +1,37 @@
 #!/usr/bin/env bash
+# ANSWERS: Mi all az elo webshop termekadataban (olvaso ag; az iras kulon uton es kulon engedellyel megy).
 #
 # UNAS webshop OLVASO helper (shop.acropora.hu, ShopId 47679).
 #
 # MIERT LETEZIK: a termekadat eddig nem volt gepileg elerheto a flottanak, es emiatt
 # minden keszlet- es termekkerdes emberi korkerdes volt (2026-08-16, otleteles: harom
 # agens egymastol fuggetlenul ugyanezt a hianyt nevezte meg elso helyen).
+#
+# =====================================================================================
+# A TERMEK ALAPSTATUSZA NEGY ERTEKU, NEM KETTO. Ez itt all, es nem emlekben, mert
+# 2026-09-02-ig OTSZOR kerdeztuk meg Balazstol ugyanezt, es o otodszorre szolt ra.
+#
+#   Statuses.Status[Type=base].Value
+#     0  inaktiv
+#     1  aktiv
+#     2  aktiv es UJ
+#     3  aktiv, de NEM VASAROLHATO
+#
+# Forras: az UNAS sajat API-dokumentacioja, plusz Balazs admin-kepernyokepe; eloszor
+# 2026-08-17 13:21-kor merve friss dumpon, es 2026-09-02-en fuggetlenul ujramerve.
+# A KET MERES EGYEZIK a ket ritka erteken (54 darab kettes, 4 darab harmas), es a masik
+# ketto is egy nagysagrendben mozdult (315/314 inaktiv, 1516/1521 aktiv).
+#
+# MIERT KERESTE MEG OTSZOR OT KULONBOZO EMBER, es miert ITT all a valasz: a feljegyzes
+# cime "termekstatuszok" volt, a kerdest viszont mindenki "publikacios allapotkent"
+# teszi fel. A kereses nem talal ra, a valasz meg ott van. Nem figyelmetlenseg: a tudas
+# olyan helyen lakott, ahol csak veletlenul jon elo. Itt viszont mindenki elolvassa,
+# aki UNAS adathoz nyul.
+#
+# ES AMIT EZ A NEGY ERTEK JELENT A GYAKORLATBAN: a "hany termek lathato" es a "hany
+# termek megvasarolhato" NEM ugyanaz a szam, es egyik sem az "aktiv" darabszam. Aki
+# ketallasunak veszi (aktiv kontra nem aktiv), az 58 tetelt sorol rossz oldalra.
+# =====================================================================================
 #
 # BIZTONSAG:
 # - A host HARDCODED (api.unas.eu). Nem valtoztathato at exfiltracios csatornava.
@@ -35,8 +62,17 @@
 #                                       -> rendelesek, SZEMELYES ADAT NELKUL (lasd lentebb)
 #   unas.sh newsletter-stat             -> hirlevel-lista OSSZESITVE, cimek nelkul
 #   unas.sh get <endpoint> [params.xml] -> nyers hivas, csak get*/check* endpointra
-#   unas.sh set-short <sku> <fajl> --approval "<szoveg>" --expect <sha256>
+#   unas.sh set-short <sku> <fajl> --approval "<szoveg>" --expect <sha256> [--field short|long]
 #                                       -> a rovid leiras (Description/Short) FELULIRASA, lasd BIZTONSAG
+#                                       -> `--field long`: UGYANEZ a HOSSZU leirasra
+#                                          (Description/Long). Ez a kapcsolo 2026-09-04-ig
+#                                          csak a kod belsejeben volt dokumentalva, itt nem,
+#                                          es ezert azt jelentettem a gazdanak, hogy a hosszu
+#                                          leiras irasat MEG MEG KELL IRNI. Nem kellett: mar
+#                                          kesz volt. Egy nem dokumentalt kapcsolo ugyanugy
+#                                          nem letezik, mint egy meg meg nem irt -- csak
+#                                          dragabban, mert a masodikat legalabb nem kezdi el
+#                                          senki masodszor is megirni.
 #   unas.sh set-name <sku> <fajl> --approval "<szoveg>" --expect <sha256>
 #                                       -> a termek NEVENEK felulirasa. A cikkszam SOHA nem
 #                                          valtozik, lasd BIZTONSAG.
@@ -232,11 +268,26 @@ if CMD == "login":
     print("IRASI JOG: " + (", ".join(write) if write else "nincs -- a kulcs csak olvasni tud"))
 
 elif CMD == "count":
+    # A State ELHAGYHATO, es a hianya NEM ugyanaz, mint a "live".
+    #
+    # MERVE 2026-09-04 (barracuda lelete): a mi lehivasunk State NELKUL ment, es het
+    # napon at BETURE 1893-at adott. Az OS szinkronja viszont KET kort fut, EXPLICIT
+    # allapottal ("live" es "deleted"), es nalunk 1894 termek all. A ket szam ezert nem
+    # egymas ellenorzese, hanem KET KULONBOZO KERDES valasza -- es az allapot nelkuli
+    # alak egy MEG NEM NEVEZETT alapertelmezes, nem "az osszes termek".
+    #
+    # Ezert lehet mostantol allapotot adni:  unas.sh count live
+    # Az allapot nelkuli alak valtozatlanul mukodik, hogy a regi szamok osszevethetok
+    # maradjanak -- de aki szamot ir le, irja oda, MELYIK alakkal merte.
     tok, _ = login()
+    state = (a[0] if a else "").strip()
+    extra = "<ContentType>minimal</ContentType>"
+    if state:
+        extra = "<State>%s</State>%s" % (state, extra)
     n = 0
-    for _ in paged(tok, "getProduct", "Product", "<ContentType>minimal</ContentType>"):
+    for _ in paged(tok, "getProduct", "Product", extra):
         n += 1
-    print(n)
+    print("%d  (State=%s)" % (n, state if state else "nincs megadva"))
 
 elif CMD in ("dump", "stock"):
     if not a:
@@ -328,6 +379,19 @@ elif CMD == "orders":
         inv = o.get("Invoice")
         if isinstance(inv, dict) and inv.get("Status"):
             out["InvoiceStatus"] = inv["Status"]
+        # A VEVO AZONOSITOJA, ES CSAK AZ. Balazs kerte 2026-09-07-en, mert enelkul
+        # nem merheto, hany meglevo rendelesnel oldhato fel egyaltalan a vasarlo --
+        # a rendeles es a vasarlo osszekotese (PR 581) EZEN a mezon all.
+        # A `Customer` blokk NEVET, E-MAIL CIMET, TELEFONT es CIMET is tartalmaz,
+        # ezert nem a blokkot vesszuk at, hanem egyetlen kulcsot belole. Ugyanaz a
+        # minta, mint a Shipping/Payment eseteben: a blokkbol csak az, ami a
+        # mereshez kell.
+        # AMI EZZEL LEMEZRE KERUL: egy alneves azonosito, ami a UNAS-ban EGY vevore
+        # mutat. Nev nelkul nem azonosit szemelyt, de OSSZEKAPCSOLHATO -- ezert ha
+        # egy elemzeshez nem kell, ne ezt a parancsot hasznald.
+        cust = o.get("Customer")
+        if isinstance(cust, dict) and cust.get("Id"):
+            out["CustomerId"] = cust["Id"]
         items = (o.get("Items") or {}).get("Item")
         if isinstance(items, dict):
             items = [items]

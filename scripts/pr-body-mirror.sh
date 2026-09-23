@@ -27,12 +27,21 @@
 #                                   KERESSEL feloldhato annak, akinek ma nincs
 # Egy tipus nelkuli "nincs GitHub-elerese" a rosszabbikat orokli mindenkire.
 #
-# AMI VISZONT NEM TECHNIKAI KORLAT, HANEM DONTES: a PR NYITASA es a BEOLVASZTAS
-# acrobotnal marad, akkor is, ha ket agens technikailag tudna. Az indok az, hogy
-# a PR nyitasa az a pont, ahol valaki MASNAK kell megneznie az agat: 2026-08-31-en
-# ez ketszer fogott meg valamit (egy duplikatum PR egy mar beolvadt agra, es egy
-# beolvasztasbol kimaradt commit). Ha ez valaha megvaltozik, EZT a bekezdest kell
-# atirni, nem a hozzaferest.
+# AMI VISZONT NEM TECHNIKAI KORLAT, HANEM DONTES: a BEOLVASZTAS acrobotnal marad,
+# akkor is, ha ket agens technikailag tudna.
+#
+# A PR NYITASA MAR NEM. Ez a bekezdes 2026-09-21-ig azt allitotta, hogy a nyitas is
+# acrobote; nautilus merte vissza aznap 12:26-kor, hogy o maga nyitotta a 873, 876 es
+# 878 PR-eket a `pr-nyitok.sh`-val. Vagyis a szabaly tulelte a sajat feltetelet, es a
+# fejlec eppen azt a fajta allitast orizte, ami ellen kiallitottak.
+#
+# AZ EREDETI INDOK A NYITASRA az volt, hogy ott valaki MASNAK kell megneznie az agat:
+# 2026-08-31-en ez ketszer fogott meg valamit (egy duplikatum PR egy mar beolvadt agra,
+# es egy beolvasztasbol kimaradt commit). AZ INDOK NEM SZUNT MEG -- a helye valtozott:
+# ma a BEOLVASZTAS elott all az a masik szempar, es a `pr-beolvaszt.sh` kapui
+# (elavult bazis, friss fej, piros ellenorzes) ugyanazt a ket esetet fogjak meg.
+#
+# Ha ez valaha megvaltozik, EZT a bekezdest kell atirni, nem a hozzaferest.
 #
 # ES AMIERT A FEJLEC KOTELEZO (murena kerese, ugyanaznap): fejlec nelkul a
 # fajl FRISSESSEGEROL marad ugyanaz a kerdes, csak eggyel beljebb. Egy fejlec

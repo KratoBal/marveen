@@ -24,11 +24,13 @@
 #   bash scripts/fleet-api.sh kanban-new "<title>" <status> <assignee> <priority>
 #   bash scripts/fleet-api.sh kanban-move <card_id> <status> [actor]
 #   bash scripts/fleet-api.sh kanban-assign <card_id> <assignee>
+#   bash scripts/fleet-api.sh kanban-cim <card_id> - < cim.txt      # a CIM atirasa
 #   bash scripts/fleet-api.sh kanban-comment <card_id> <author> "<content>"
 #   bash scripts/fleet-api.sh kanban-comments <card_id>          # READ them back
 #   bash scripts/fleet-api.sh message-read <id>       # a TELJES tartalom, vagas nelkul
 #   bash scripts/fleet-api.sh message-status <id>
 #   bash scripts/fleet-api.sh messages-sent <agent> [limit]
+#   bash scripts/fleet-api.sh inbox <agent> [limit]   # a SAJAT bejovo sor, ujak elol
 #   bash scripts/fleet-api.sh schedule-new <nev> <leiras> <prompt> <cron> <agent> [tipus]
 #   bash scripts/fleet-api.sh approval-new <agent> <kategoria> <leiras>
 #         (a lejarat a KATEGORIABOL jon, nem adhato meg hivaskor -- lasd a parancsnal)
@@ -271,6 +273,29 @@ if short:
     CARD="${1:?card id required}"; : "${2:?assignee required}"; ASSIGNEE="$(arg "$2")"
     put "/kanban/${CARD}" "$(json_obj assignee "$ASSIGNEE")"
     ;;
+  kanban-cim)
+    # A KARTYA CIMENEK ATIRASA. Ez a parancs 2026-09-08-ig NEM LETEZETT, es a
+    # hianya EGY ELO KARTYAT irt at egy kozos tablan.
+    #
+    # MI TORTENT: nautilus at akart irni egy elavult cimet, es mivel nem volt ra
+    # parancs, a nyers vegpontot probalta ki. A PATCH 404-et adott, a POST is,
+    # a PUT viszont 200-at -- csakhogy a proba TESTE `{"title":"proba"}` volt,
+    # tehat a siker nem csak megmondta, hogy a vegpont letezik: AT IS IRTA a
+    # cimet, es a kartya nehany masodpercig szo szerint `proba` volt.
+    #
+    # AZ OK NEM AZ O HIBAJA VOLT, HANEM EZ A HIANYZO AG. Egy ismeretlen
+    # vegpontot ki KELL probalni ahhoz, hogy megtudd, letezik-e -- es amig
+    # nincs parancs, a proba mindig valodi rekordon fut. Ezert a feloldas nem
+    # figyelmeztetes, hanem ez a nyolc sor.
+    #
+    # A CIM STDIN-ROL JON, es ez sem kenyelmi kerdes: a kartya-cimek
+    # ekezeteket, idezojelet es zarojelet tartalmaznak, es a lapunkon mert
+    # eset all arra, hogy az idezojel a bash-ben csonkolja a szoveget -- zold
+    # nyugtaval.
+    argc_max 2 "$#" "fleet-api.sh kanban-cim <card_id> - < cim.txt"
+    CARD="${1:?card id required}"; : "${2:?title required}"; TITLE="$(arg "$2")"
+    put "/kanban/${CARD}" "$(json_obj title "$TITLE")"
+    ;;
   kanban-comment)
     argc_max 3 "$#" "fleet-api.sh kanban-comment <card_id> <author> - < szoveg.txt"
     CARD="${1:?card id required}"; : "${2:?author required}"; AUTHOR="$(arg "$2")"; : "${3:?content required}"; CONTENT="$(arg "$3")"
@@ -329,9 +354,25 @@ if short:
     # az UT nem letezett -- egy eszkoz NEVE nem bizonyitja, hogy az eszkoz odavisz.
     #
     # Ez az ag a nyers tartalmat adja, ahogy a szerver tarolja. Read-only.
-    argc_max 1 "$#" "fleet-api.sh message-read <uzenet_id>"
+    # A MASODIK ARGUMENTUM (agens) A LATOHATART NYITJA KI, ES EGY HAMIS KORLATOT VALT KI.
+    #
+    # Ez az ag korabban azt irta ki, hogy "ennel REGEBBI uzenet ezen az uton nem erheto el".
+    # NEM IGAZ, es szerkezeti tiltasnak latszott. A `/api/messages` vegpont ismer `before`
+    # kurzort -- csak az `agent` parameterrel egyutt (a szures nelkuli ag eldobja).
+    #
+    # Ezert: ha megadod, KINEK az uzenete, egyetlen hivassal barmilyen regi azonosito
+    # elerheto (`agent=X&before=<id+1>`, es a keresett sor a lap ELSO eleme lesz).
+    # Az agens nelkuli alak tovabbra is csak az utolso 200-at latja -- az nem hiba, csak
+    # kevesebb, es a kimenet meg is mondja, mivel lehet tovabbmenni.
+    argc_max 2 "$#" "fleet-api.sh message-read <uzenet_id> [agens]"
     ID="${1:?message id required}"
-    get "/messages?limit=500" | MSG_ID="$ID" python3 -c '
+    WHO="${2:-}"
+    if [ -n "$WHO" ]; then
+      MREQ="/messages?agent=${WHO}&limit=200&before=$((ID + 1))"
+    else
+      MREQ="/messages?limit=200"
+    fi
+    get "$MREQ" | MSG_ID="$ID" MSG_WHO="$WHO" python3 -c '
 import json, os, sys, time
 mid = int(os.environ["MSG_ID"])
 d = json.load(sys.stdin)
@@ -339,9 +380,17 @@ rows = d if isinstance(d, list) else d.get("messages", d.get("data", []))
 m = next((r for r in rows if r.get("id") == mid), None)
 if m is None:
     oldest = min((r.get("id", 0) for r in rows), default=0)
-    print("FAIL: nincs %d azonositoju uzenet az utolso %d-ban (a legregebbi benne: %d)."
+    who = os.environ.get("MSG_WHO") or ""
+    print("FAIL: nincs %d azonositoju uzenet ebben az ablakban (%d sor, a legregebbi: %d)."
           % (mid, len(rows), oldest))
-    print("      Ennel REGEBBI uzenet ezen az uton nem erheto el.")
+    if who:
+        print("      Az agens-szures MEGVOLT (%s), tehat ez NEM latohatar-kerdes:" % who)
+        print("      ez az uzenet nem tartozik hozza, vagy nem letezik.")
+    else:
+        print("      EZ NEM AZT JELENTI, HOGY NEM LETEZIK. Agens nelkul csak az utolso 200")
+        print("      uzenet latszik, es az ablak a flotta forgalmaval csuszik. Add meg,")
+        print("      KINEK az uzenete, es barmilyen regi azonosito elerheto:")
+        print("        fleet-api.sh message-read %d <agens>" % mid)
     raise SystemExit(1)
 print("%d | %s -> %s | %s | %s" % (
     m["id"], m.get("from_agent"), m.get("to_agent"), m.get("status"),
@@ -363,14 +412,23 @@ if r:
     # onmagaban minden done-ra kiirodik, tehat par het alatt hattérzaj lesz -- ez a
     # sor viszont CSAK akkor szolal meg, ha tenyleg baj van.)
     AGENTS_JSON="$(curl -s -H "Authorization: Bearer $TOKEN" "${API}/agents" 2>/dev/null || true)"
-    get "/messages?limit=500" | MSG_ID="$ID" AGENTS_JSON="$AGENTS_JSON" MAIN_AGENT="${MAIN_AGENT_ID:-acrobot}" python3 -c '
+    # A LEKERDEZES AZ AZONOSITOVAL MEGY, NEM ABLAKKAL (javitva 2026-09-08 21:15).
+    # Addig ez a parancs a szures nelkuli /messages listat nezte, amit a szerver 200
+    # sornal vag -- tehat MINDEN ennel regebbi azonositora azt felelte, hogy "nincs az
+    # utolso 200-ban", mikozben a sor ott allt az adatbazisban. Ket agens ezt a RENDSZER
+    # korlatjanak vette ("a regi uzenetek idejet nem lehet lemerni"), pedig csak a parancs
+    # nezett rossz helyre. Az uj /api/messages/<id> vegpont egy sort ad, ablak nelkul.
+    get "/messages/${ID}" | MSG_ID="$ID" AGENTS_JSON="$AGENTS_JSON" MAIN_AGENT="${MAIN_AGENT_ID:-acrobot}" python3 -c '
 import json, os, sys, time
 mid = int(os.environ["MSG_ID"])
 d = json.load(sys.stdin)
-rows = d if isinstance(d, list) else d.get("messages", d.get("data", []))
-m = next((r for r in rows if r.get("id") == mid), None)
+# A 404 TORZSE IS TARTALMAZZA AZ id MEZOT ({"error": ..., "id": 99999999}), tehat az
+# id egyezese ONMAGABAN nem bizonyitja, hogy uzenetet kaptunk. Merve 2026-09-08 21:17,
+# egy nem letezo azonositoval: az elso alak egy KITALALT sort irt ki (None -> None) es
+# 0-val tert vissza. A "status" megletet kerjuk, mert azt csak valodi sor viseli.
+m = d if isinstance(d, dict) and d.get("id") == mid and d.get("status") and not d.get("error") else None
 if m is None:
-    print("FAIL: nincs %d azonositoju uzenet az utolso %d-ban" % (mid, len(rows)))
+    print("FAIL: nincs %d azonositoju uzenet (a szerver valasza: %s)" % (mid, json.dumps(d)[:200]))
     raise SystemExit(1)
 print("%d | %s -> %s | %s | letrehozva %s" % (
     m["id"], m.get("from_agent"), m.get("to_agent"), m.get("status"),
@@ -455,6 +513,105 @@ if rows:
     print("           Egy konkret regebbi uzenetet a message-status <id> paranccsal kerdezz le.")
 '
     ;;
+  inbox)
+    # A SAJAT BEJOVO SOR, ujak elol.
+    #
+    # MIERT LETEZIK (murena merese, 2026-09-08): a lapjan ket hete allt egy szabaly --
+    # "mielott egy megkapott utasitas alapjan cselekszem vagy jelentek, nezzem meg, jott-e
+    # ujabb uzenet ugyanarrol" --, es melle az volt irva, hogy "egy hivas (inbox.sh)".
+    # AKKOR nem letezett ilyen szkript sehol, es ez a sor eredetileg ugy szolt, hogy "soha
+    # nem is volt". AZ MA MAR HAMIS: murena 2026-09-08-an megirta a sajatjat
+    # (agents/murena/scripts/inbox.sh), es hasznalja is. A megjegyzes tehat datumozott
+    # allitas, nem orok igazsag -- 2026-09-21-en mertem vissza. A `messages-sent` azt mutatja, amit
+    # O kuldott; a `message-read` es a `message-status` ismert azonositot ker. A sajat sorat
+    # tehat nem tudta vegignezni, mikozben a szabaly VEGREHAJTHATONAK LATSZOTT.
+    #
+    # ES A KEPESSEG VEGIG MEGVOLT: a `/api/messages?agent=<nev>` vegpont mind a ket iranyt
+    # adja. Nem hozzaferes hianyzott es nem jogosultsag, hanem az, hogy a vegpont es a
+    # felulet kulon-kulon jo volt, es senki nem kotoette ossze oket.
+    #
+    # Az ara nem egy hianyzo parancs volt, hanem egy HAMIS SZABALY: murena ket hetig hitte,
+    # hogy van lepese, amivel ellenorizhet. Egy szabaly, aminek nincs eszkoze, rosszabb a
+    # hianyzo szabalynal, mert megnyugtat.
+    # ===================================================================================
+    # A LATOHATAR NEM FAL, HANEM LAP -- ES EZ EGY ORAN BELUL A HARMADIK ELOFORDULASA
+    # ANNAK, HOGY A KEPESSEG MEGVOLT ES A PARANCS NEM (barracuda merese, 2026-09-08 05:40).
+    #
+    # Az elso valtozat `limit=500`-at kert, a szerver 200-nal vag, es a lista ala odairtam,
+    # hogy ennel regebbi "nem latszik". Barracuda ezt lemerte KET regi azonositoval (13895,
+    # 14006), ISMERT POZITIV KONTROLLAL egyutt (a 15031-re valaszt kapott, tehat a parancs
+    # mukodik) -- es azt is megmerte, hogy AZ ABLAK CSUSZIK: negy perc alatt 14834-rol
+    # 14838-ra mozdult, a flotta forgalmaval egyutt.
+    #
+    # EN EBBOL AZT MONDTAM NEKI, hogy ami a listabol kiesett, azt egyedi lekerdezessel meg
+    # meg lehet nezni. TEVEDTEM: a `message-status` UGYANAZT a szures nelkuli ablakot nezi.
+    # O visszamerte, mielott rahagyatkozott volna, es a mondatom megdolt.
+    #
+    # DE A BELOLE LEVONT KOVETKEZTETES ("utolag nem lehet visszamenni") SEM ALL, es ezt en
+    # mertem meg utana: a `/api/messages` vegpont ismer `before` kurzort -- CSAK az `agent`
+    # parameterrel egyutt (a szures nelkuli ag a route-ban eldobja). Az `agent=X&before=N`
+    # alakkal tetszolegesen visszalapozhato a sor: a 13895 igy MEGVAN, es a lap ablaka
+    # (13177 .. 13895) is kiirodik.
+    #
+    # Vagyis harmadszor ugyanaz: nem hozzaferes hianyzott es nem jogosultsag, hanem hogy
+    # senki nem adta at a kurzort a parancsnak. Ezert a harmadik argumentum.
+    #
+    # AMI EBBOL NYITVA MARADT, MA ESTE LEZARULT (2026-09-08 21:15). A `message-status`
+    # tobbe NEM ablakot nez: a sajat azonositojaval kerdez, a most felvett
+    # GET /api/messages/<id> vegponton. Egy sor, amit az id azonosit, nem tud kiesni egy
+    # ablakbol, amit nem hasznal. A negyedik elofordulas ugyanabbol a csaladbol: az adat
+    # megvolt, a parancs nezett rossz helyre.
+    # A `message-read` tovabbra is a szures nelkuli agon fut, es ott a `before` valoban
+    # nem szamit -- de az mar nem ad hamis negativot, mert ismert azonositot ker.
+    # ===================================================================================
+    argc_max 3 "$#" "fleet-api.sh inbox <agent> [limit] [before-azonosito]"
+    : "${1:?agent required}"; AGENT="$(arg "$1")"; LIMIT="${2:-15}"
+    BEFORE="${3:-}"
+    QS="/messages?agent=${AGENT}&limit=200"
+    [ -n "$BEFORE" ] && QS="${QS}&before=${BEFORE}"
+    get "$QS" | MSG_AGENT="$AGENT" MSG_LIMIT="$LIMIT" python3 -c '
+import json, os, sys, time
+agent = os.environ["MSG_AGENT"]; limit = int(os.environ["MSG_LIMIT"])
+d = json.load(sys.stdin)
+rows = d if isinstance(d, list) else d.get("messages", d.get("data", []))
+mine = [r for r in rows if r.get("to_agent") == agent]
+mine.sort(key=lambda r: r.get("id", 0), reverse=True)
+def _cut(s, n):
+    return s if len(s) <= n else s[:n - 3] + "..."
+latszik = mine[:limit]
+if not latszik:
+    print("nincs bejovo uzenet ide: %s" % agent)
+else:
+    for m in latszik:
+        print("%5d | <- %-12s | %-9s | %s | %s" % (
+            m["id"], m.get("from_agent"), m.get("status"),
+            time.strftime("%H:%M", time.localtime(m.get("created_at", 0))),
+            _cut((m.get("content") or "").replace("\n", " "), 56)))
+    print()
+    print("A TELJES SZOVEG: fleet-api.sh message-read <id> -- a fenti sorok 56 karakteren")
+    print("vagnak, es egy levagott mondat mast allithat, mint a teljes.")
+# A NYITOTT TETELEK KULON, mert a lista maga nem valaszol arra, mi maradt kezeletlenul.
+# A `done` az EGYETLEN allapot, ami lezarast jelent (a message-close teszi ra); a
+# `delivered` csak annyit mond, hogy megerkezett a panelbe.
+nyitott = [m["id"] for m in mine if m.get("status") != "done"]
+print()
+print("NEM LEZART bejovo (a teljes latott ablakban): %d" % len(nyitott))
+if nyitott:
+    print("  %s" % nyitott[:30])
+    print("  A `delivered` NEM lezaras: azt jelenti, hogy megkaptad, nem hogy elintezted.")
+# UGYANAZ A LATOHATAR, MINT A messages-sent AGON, es ugyanabbol az okbol: a szures a
+# KAPOTT ablakon belul fut, es ami ele esik, jelzes nelkul hianyzik.
+if rows:
+    oldest = min(r.get("id", 0) for r in rows)
+    print()
+    print("LATOHATAR: ez a lap a te %d uzeneted nezte at, a legregebbi benne: %d." % (len(rows), oldest))
+    print("           Ennel REGEBBI itt NEM latszik, es a hianya nem bizonyitek --")
+    print("           DE VISSZA LEHET LAPOZNI, nem fal:")
+    print("             fleet-api.sh inbox %s %d %d" % (agent, limit, oldest))
+    print("           Ismeteld, amig a lap ki nem urul. Az ablak a flotta forgalmaval CSUSZIK,")
+    print("           tehat ugyanaz a hivas ot perc mulva mar mashonnan indul.")
+'
+    ;;
   # 2026-08-23: azert kerult ide, hogy a store/ mappa olvasasat MEG LEHESSEN tiltani az
   # agenseknek. Amig az utemezes es a jovahagyas csak nyers curl-lel ment, minden agens
   # CLAUDE.md-je eloirta a token kozvetlen felolvasasat, tehat a tiltas nem szabalyt hozott
@@ -504,7 +661,7 @@ if d.get("action_description"):
 '
     ;;
   *)
-    echo "FAIL: unknown command '$CMD' (memory|memory-search|daily-log|daily-log-now|daily-log-read|kanban-list|kanban-new|kanban-move|kanban-assign|kanban-comment|kanban-comments|message-status|messages-sent|schedule-new|approval-new|approval-get|message-close|message-read)"
+    echo "FAIL: unknown command '$CMD' (memory|memory-search|daily-log|daily-log-now|daily-log-read|kanban-list|kanban-new|kanban-move|kanban-assign|kanban-cim|kanban-comment|kanban-comments|inbox|message-status|messages-sent|schedule-new|approval-new|approval-get|message-close|message-read)"
     exit 1
     ;;
 esac
