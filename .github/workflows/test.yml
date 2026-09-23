@@ -73,3 +73,8 @@ jobs:
       - run: bash scripts/__tests__/morning-timer-park.test.sh
       - run: bash scripts/__tests__/userbot-arming-gate.test.sh
       - run: bash scripts/__tests__/supabase-q-token-hiding.test.sh
+      # READONLYGATEREDIRECT923: the redirect exception (own-scratchpad
+      # targets only) is exactly the class of gate instrument the comments
+      # above warn about -- a wrong call here is a silent bypass, not a
+      # missed confirmation, so it does not get to run "by hand only".
+      - run: python3 scripts/hooks/tests/readonly-command-gate.test.py

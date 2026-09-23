@@ -75,6 +75,8 @@ const EXEMPT: Record<string, string> = {
     'OPT-IN by construction (BROWSERNOTICE920): it envelopes browser-MCP / WebSearch payloads as untrusted content, and an install without a browser MCP server gains nothing from it. Wiring it here would fire it on every fleet member, most of which have no browser. Operators add it to their own PostToolUse hooks -- the procedure is in docs/security-hardening.md.',
   'mio-orszem-precheck.sh':
     'scheduler preCheck for the HOST-LOCAL marveen-io-kozosseg-orszem task (ORSICTX912): the mio community sentinel is this install\'s own and deliberately NOT seeded (a repo seed would ship it to every customer install), so its registration lives in the host ~/.claude/scheduled-tasks task-config -- outside this corpus by design. Wiring is gated on the ORSICTX912 activation order (host restart -> verify -> merge -> build+restart); the hermetic fail-direction tests are scripts/__tests__/mio-orszem-precheck.test.py.',
+  'readonly-command-gate.py':
+    'ONE-AGENT PreToolUse gate (kanban daba735e, acrobot brief 2026-09-23): scoped to barracuda only, by explicit decision ("HATOKOR: eloszor csak barracuda. Altalanositas kesobb, ha megall a labán" -- its own docstring). Its registration lives in agents/barracuda/.claude/settings.json, a per-install runtime file this repo never seeds and does not track -- outside every REGISTRATION_SURFACE here by design, the same shape as browser-content-notice.py above. Wiring it into a seeding surface would fire it for every fleet agent before the wider-rollout decision this hook\'s own docstring defers. Its own hermetic suite is scripts/hooks/tests/readonly-command-gate.test.py.',
 }
 
 function readSurfaces(rels: readonly string[]): string {
