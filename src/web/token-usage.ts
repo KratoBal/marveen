@@ -1,4 +1,4 @@
-import { statSync, readdirSync, existsSync } from 'node:fs'
+import { statSync, readdirSync, existsSync, realpathSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { createReadStream } from 'node:fs'
@@ -11,6 +11,24 @@ import { resolveAgentConfigDirForRead } from './claude-plans.js'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
+// The worker (MAIN_AGENT_ID-worker) runs with its own CLAUDE_CONFIG_DIR under
+// ~/.acrobot-worker, so its transcripts are filed under the worker's cwd, which
+// neither the `-agents-<name>` pattern nor the main project dir matches. Before
+// 2026-09-27 the worker was simply absent from token_usage. Its projects dir is
+// a symlink to PROJECTS_DIR today; both roots are scanned and deduped by
+// realpath, so it keeps working if the symlink is ever replaced by a real dir.
+const WORKER_HOMES = (process.env.MEASURE_WORKER_HOMES ?? join(homedir(), `.${MAIN_AGENT_ID}-worker`))
+  .split(':').filter(Boolean)
+const WORKER_AGENT = `${MAIN_AGENT_ID}-worker`
+
+// Sub-agents run as their own OS users since 2026-09-22 and Claude Code writes
+// their transcripts 0600, so the dashboard cannot read them. Each sub-agent's
+// statusLine (scripts/measure-statusline.py --export-usage, running AS that
+// user) copies the numbers of every API call into USAGE_EXPORT_DIR/<agent>/,
+// group-readable, in transcript shape. See docs/measurement-layer-v1.md.
+export const USAGE_EXPORT_DIR = process.env.MEASURE_USAGE_DIR
+  ?? join(PROJECT_ROOT, 'store', 'measurements', 'usage')
+
 // Claude Code encodes a project's absolute path into a directory name by
 // replacing every non-alphanumeric/non-dash character with `-`. The main
 // agent's transcripts live under that exact directory, regardless of what
@@ -19,34 +37,61 @@ function encodeProjectPath(p: string): string {
   return p.replace(/[^a-zA-Z0-9-]/g, '-')
 }
 
-interface AgentTranscriptSource {
+export interface AgentTranscriptSource {
   agent: string
   projectDir: string
+}
+
+/** Which agent a project dir under a projects root belongs to, or null. Pure; exported for tests. */
+export function agentForProjectEntry(entry: string, mainDirName: string, workerDirNames: string[]): string | null {
+  // sanitizeAgentName() allows [a-z0-9-], so the old /([a-z]+)$/ silently
+  // skipped every agent with a digit or a hyphen in its name -- the whole
+  // per-project worker fleet (davinci-ocura, vermeer-fressa, ...) never
+  // appeared in the token monitor at all. Not zero usage: no rows.
+  const agentMatch = entry.match(/-agents-([a-z0-9-]+)$/)
+  if (agentMatch) return agentMatch[1]
+  if (entry === mainDirName) return MAIN_AGENT_ID
+  // The worker also runs from sibling dirs of its home (e.g. `<home>-fast`).
+  for (const w of workerDirNames) {
+    if (entry === w || entry.startsWith(`${w}-`)) return WORKER_AGENT
+  }
+  return null
 }
 
 // `projectRootOverride` exists for the tests, matching the convention
 // resolveAgentConfigDirForRead() already uses: the isolated dir is found by
 // probing the filesystem, so the probe root has to be redirectable to a
 // fixture. Production callers pass nothing.
-export function discoverAgentSources(projectRootOverride?: string): AgentTranscriptSource[] {
+export function discoverAgentSources(opts: {
+  roots?: string[]
+  exportDir?: string
+  workerHomes?: string[]
+  projectRoot?: string
+  /** Test hook for the isolated-config probe root (resolveAgentConfigDirForRead). */
+  projectRootOverride?: string
+} | string = {}): AgentTranscriptSource[] {
+  // Older callers pass the probe-root override as a bare string.
+  if (typeof opts === 'string') opts = { projectRootOverride: opts }
   const sources: AgentTranscriptSource[] = []
-  if (!existsSync(PROJECTS_DIR)) return sources
-  const mainDirName = encodeProjectPath(PROJECT_ROOT)
-  for (const entry of readdirSync(PROJECTS_DIR)) {
-    const full = join(PROJECTS_DIR, entry)
-    let stat
-    try { stat = statSync(full) } catch { continue }
-    if (!stat.isDirectory()) continue
-
-    // sanitizeAgentName() allows [a-z0-9-], so the old /([a-z]+)$/ silently
-    // skipped every agent with a digit or a hyphen in its name -- the whole
-    // per-project worker fleet (davinci-ocura, vermeer-fressa, ...) never
-    // appeared in the token monitor at all. Not zero usage: no rows.
-    const agentMatch = entry.match(/-agents-([a-z0-9-]+)$/)
-    if (agentMatch) {
-      sources.push({ agent: agentMatch[1], projectDir: full })
-    } else if (entry === mainDirName) {
-      sources.push({ agent: MAIN_AGENT_ID, projectDir: full })
+  const workerHomes = opts.workerHomes ?? WORKER_HOMES
+  const roots = opts.roots ?? [PROJECTS_DIR, ...workerHomes.map(h => join(h, '.claude-config', 'projects'))]
+  const mainDirName = encodeProjectPath(opts.projectRoot ?? PROJECT_ROOT)
+  const workerDirNames = workerHomes.map(encodeProjectPath)
+  const seen = new Set<string>()
+  for (const root of roots) {
+    let real: string
+    try { real = realpathSync(root) } catch { continue }
+    if (seen.has(real)) continue
+    seen.add(real)
+    let entries: string[]
+    try { entries = readdirSync(real) } catch { continue }
+    for (const entry of entries) {
+      const full = join(real, entry)
+      let stat
+      try { stat = statSync(full) } catch { continue }
+      if (!stat.isDirectory()) continue
+      const agent = agentForProjectEntry(entry, mainDirName, workerDirNames)
+      if (agent) sources.push({ agent, projectDir: full })
     }
   }
 
@@ -73,7 +118,7 @@ export function discoverAgentSources(projectRootOverride?: string): AgentTranscr
   // input, output) plus INSERT OR IGNORE absorbs any overlap.
   for (const name of listAgentNames()) {
     let configDir: string | null = null
-    try { configDir = resolveAgentConfigDirForRead(name, projectRootOverride) } catch { continue }
+    try { configDir = resolveAgentConfigDirForRead(name, opts.projectRootOverride) } catch { continue }
     if (!configDir) continue
     const isolatedProjects = join(configDir, 'projects')
     if (!existsSync(isolatedProjects)) continue
@@ -91,6 +136,16 @@ export function discoverAgentSources(projectRootOverride?: string): AgentTranscr
     }
   }
 
+  // Exported sub-agent usage: one dir per agent, named by the agent itself.
+  const exportDir = opts.exportDir ?? USAGE_EXPORT_DIR
+  let exported: string[] = []
+  try { exported = readdirSync(exportDir) } catch { /* not activated yet */ }
+  for (const name of exported) {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) continue
+    const full = join(exportDir, name)
+    try { if (!statSync(full).isDirectory()) continue } catch { continue }
+    sources.push({ agent: name, projectDir: full })
+  }
   return sources
 }
 
@@ -234,6 +289,11 @@ async function parseJsonlFile(
         }
       }
     }
+
+    // An exported sub-agent line carries no thinking text, only the estimate
+    // the exporter computed with the same chars/4 rule.
+    const est = obj.message?.thinking_tokens_est
+    if (typeof est === 'number' && est > 0) thinkingTokens += est
 
     calls.push({
       agent,
