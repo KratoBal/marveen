@@ -383,6 +383,32 @@ export function ensureAgentProvenanceHook(name: string): boolean {
   return true
 }
 
+// Measurement Layer v1: every sub-agent's statusLine is the quota sampler and
+// its own token exporter (scripts/measure-statusline.py --export-usage). It must
+// run AS the agent's OS user -- that is the only identity that can read the 0600
+// transcripts -- and a statusLine command does exactly that. Owner approval for
+// this profile/settings change: Balazs, 2026-09-27 15:30 UTC (Discord, main
+// channel, message_id 1553791029549998101).
+//
+// Never overwrites a statusLine someone set on purpose: only a missing one, or
+// one that already points at the measurement script (so the command can be
+// upgraded in place). Fail-open wrapper like the hooks above: a missing script
+// prints nothing instead of an error in the agent's status bar.
+const _measureScript = join(PROJECT_ROOT, 'scripts', 'measure-statusline.py')
+export function measureStatusLineCommand(agent: string, exportUsage: boolean): string {
+  const flag = exportUsage ? ' --export-usage' : ''
+  return `bash -c '[ -f ${_measureScript} ] && MEASURE_AGENT=${agent} exec python3 ${_measureScript}${flag}; exit 0'`
+}
+
+export function injectMeasureStatusLine(settings: Record<string, unknown>, agent: string, exportUsage: boolean): boolean {
+  const cur = settings.statusLine as { command?: unknown } | undefined
+  if (cur && !(typeof cur.command === 'string' && cur.command.includes('measure-statusline.py'))) return false
+  const want = { type: 'command', command: measureStatusLineCommand(agent, exportUsage), padding: 0 }
+  if (cur && JSON.stringify(cur) === JSON.stringify(want)) return false
+  settings.statusLine = want
+  return true
+}
+
 export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemplate): void {
   const agentRoot = agentDir(name)
   const settingsDir = join(agentRoot, '.claude')
@@ -423,6 +449,7 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
     injectDigestProvenanceGate(existing)
   }
   injectEgressGate(existing)
+  if (name !== MAIN_AGENT_ID) injectMeasureStatusLine(existing, name, true)
   atomicWriteFileSync(settingsPath, JSON.stringify(existing, null, 2))
 }
 

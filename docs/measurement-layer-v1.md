@@ -5,6 +5,8 @@ runtime choices (Opus 5.5, Sonnet 5, later Codex) rest on measurement instead of
 list prices. v1 measures; it does not route, switch models or enable any API.
 
 Status: built on branch `feat/measurement-layer-v1`, not merged, not deployed.
+Samplers activated 2026-09-27 (see 12.); the dashboard side ingests them only
+after this branch is merged and the dashboard is rebuilt.
 
 ## 1. Audit of what existed (2026-09-27)
 
@@ -136,21 +138,19 @@ sampler writes no path, session id or prompt text.
 
 ## 9. Known gaps (v1)
 
-1. **Sub-agent tokens after 09-22** need the transcripts to be readable or
-   exported. Proposed: the same statusline command in each agent's profile,
-   running as the agent's own user, exporting per-call numbers from its own
-   transcript into a fleet-group directory. Profile edits are a locked
-   permission category: needs the owner's yes.
-2. **Worker**: add `~/.acrobot-worker/.claude-config/projects` as a collector
-   source under the name `acrobot-worker`.
-3. **Activation**: the statusline must be set in the main agent's settings to
-   start sampling; not done on this branch (no deploy).
-4. Token attribution is per time window, not per task. Exact per-task numbers
+1. Token attribution is per time window, not per task. Exact per-task numbers
    need the agent to mark task start/end in its own session (a v2 item).
-5. Git/PR/CI linkage: parse `#<PR>` and branch names from card comments, then
+2. Git/PR/CI linkage: parse `#<PR>` and branch names from card comments, then
    read CI from GitHub. v2.
-6. Prices: no price file ships; `api_equivalent_cost_usd` stays null until one
+3. Prices: no price file ships; `api_equivalent_cost_usd` stays null until one
    with a named source is added.
+4. The worker's statusLine lives in `~/<main>-worker/.claude-config/settings.json`,
+   which no provisioning code writes: it was set by hand at activation and
+   is not reproduced by a fresh install.
+5. A sub-agent that is not running exports nothing; its transcripts are
+   picked up (backfilled) the first time its statusLine runs after a start.
+6. The quota log is one shared account: a sample says how full the account
+   is, not which agent filled it.
 
 ## 10. Adding Codex later
 
@@ -168,3 +168,48 @@ log. No new service. Studio later: the same tables move to Postgres as
 `runs` and `usage_samples`, with `tasks` becoming a first-class table that
 the kanban card references; `task_id` values stay valid because they are
 the card ids.
+
+## 12. Activation (2026-09-27)
+
+Owner approval for the settings/profile change: Balazs, 2026-09-27 15:30 UTC,
+Discord main channel, message_id 1553791029549998101. No model, auth, billing
+or API setting was changed.
+
+**Quota sampling.** `statusLine` = `scripts/measure-statusline.py` with
+`MEASURE_AGENT=<name>`, wrapped fail-open (a missing script prints nothing).
+Main agent: in its isolated config `settings.json` (a target-only key, kept
+by the provisioning merge). Worker: in `~/<main>-worker/.claude-config/settings.json`
+with `MEASURE_AGENT=<main>-worker`, no export (its transcripts are readable). Claude Code re-reads the setting in a running
+session: the first sample landed within seconds, no restart.
+
+**Worker.** `token-usage.ts` scans `~/.claude/projects` AND
+`~/<main>-worker/.claude-config/projects` (deduped by realpath; today the
+second is a symlink to the first) and maps the worker's cwd dir and its
+`-fast` sibling to `<main>-worker`. Before this, those dirs matched neither
+the `-agents-<name>` pattern nor the main dir and were skipped.
+
+**Sub-agents.** Each sub-agent's project `settings.json` gets the same
+statusLine with `--export-usage`. The statusLine runs as the agent's own OS
+user, which is the one identity that can read its 0600 transcripts. At most
+once per 60 s it forks a detached exporter (flock per agent) that walks the
+agent's own project dir and appends, per transcript, a numbers-only copy of
+every assistant line to
+
+```
+store/measurements/usage/<agent>/<transcript path with / as __>.jsonl
+```
+
+Directory `store/measurements` and `usage/` are `marveen:fleet 2775`; each
+agent dir is created by the agent as `2750`, files `0640`, so the dashboard
+(group `fleet`) reads them and other agents cannot. The exported line keeps
+the transcript shape (`type, timestamp, sessionId, message.{id, model,
+usage, content[{type:tool_use,name}]}` plus `thinking_tokens_est`), so the
+collector parses it with the transcript parser; the export dir is simply one
+more source per agent. Rows already collected are not doubled: the
+`token_usage` unique key (agent, session, timestamp, input, output) absorbs
+the overlap. Cursors are per file (byte offset, whole lines only), so the
+first run backfilled every transcript since 2026-09-22.
+
+Durable wiring: `writeAgentSettingsFromProfile` injects the statusLine on
+every sub-agent spawn (`injectMeasureStatusLine`), but never overwrites a
+statusLine that does not point at the measurement script.
