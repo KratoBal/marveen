@@ -12,8 +12,12 @@ import {
   ensureGovernanceGateCommands,
   emailGateMatcherStale,
   EMAIL_GATE_MATCHER,
+  injectReadonlyCommandGate,
+  ensureReadonlyCommandGate,
+  agentGetsReadonlyCommandGate,
 } from '../web/agent-scaffold.js'
-import { PROJECT_ROOT } from '../config.js'
+import { writeAgentSecurityProfile } from '../web/agent-config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
 
 // Review feedback on PR #803, pinned as tests:
 //  1. every injector must write a QUOTED absolute interpreter path -- an
@@ -190,5 +194,70 @@ describe('emailGateMatcherStale', () => {
     expect(emailGateMatcherStale([{ matcher: 'WebFetch', hooks: [{ type: 'command', command: 'x egress-gate.mjs' }] }])).toBe(false)
     expect(emailGateMatcherStale([])).toBe(false)
     expect(emailGateMatcherStale(undefined)).toBe(false)
+  })
+})
+
+describe('agentGetsReadonlyCommandGate', () => {
+  it('true for a strict profile', () => {
+    expect(agentGetsReadonlyCommandGate({ permissionMode: 'strict' })).toBe(true)
+  })
+
+  it('false for a permissive profile', () => {
+    expect(agentGetsReadonlyCommandGate({ permissionMode: 'permissive' })).toBe(false)
+  })
+})
+
+describe('injectReadonlyCommandGate', () => {
+  it('writes a Bash-matcher PreToolUse entry referencing the script, wrapped fail-open', () => {
+    const s: Record<string, unknown> = {}
+    injectReadonlyCommandGate(s)
+    const hooks = (s.hooks as Record<string, unknown>)
+    const ptu = hooks.PreToolUse as { matcher: string, hooks: { command: string }[] }[]
+    expect(ptu.length).toBeGreaterThan(0)
+    const entry = ptu.find((e) => e.hooks.some((h) => h.command.includes('readonly-command-gate.py')))
+    expect(entry).toBeTruthy()
+    expect(entry!.matcher).toBe('Bash')
+    const cmd = entry!.hooks[0].command
+    // fail-open wrapper: a missing script must exit 0, never block a prompt.
+    expect(cmd).toMatch(/^bash -c '\[ -f .*readonly-command-gate\.py ] && exec python3 .*readonly-command-gate\.py; exit 0'$/)
+  })
+
+  it('replaces an existing entry in place, never duplicates (idempotent merge shape)', () => {
+    const s: Record<string, unknown> = {}
+    injectReadonlyCommandGate(s)
+    injectReadonlyCommandGate(s)
+    const ptu = ptuCommands(s)
+    expect(ptu.filter((c) => c.includes('readonly-command-gate.py'))).toHaveLength(1)
+  })
+})
+
+describe('ensureReadonlyCommandGate', () => {
+  it('wires the gate for a STRICT-profile agent, then settles (idempotent)', () => {
+    mkdirSync(join(testAgentDir, '.claude'), { recursive: true })
+    writeAgentSecurityProfile(TEST_AGENT, 'researcher-reader')
+    expect(ensureReadonlyCommandGate(TEST_AGENT)).toBe(true)
+    expect(ensureReadonlyCommandGate(TEST_AGENT)).toBe(false)
+    const written = JSON.parse(readFileSync(join(testAgentDir, '.claude', 'settings.json'), 'utf-8'))
+    const commands = ptuCommands(written)
+    expect(commands.some((c) => c.includes('readonly-command-gate.py'))).toBe(true)
+  })
+
+  it('does NOT wire the gate for a permissive-profile agent', () => {
+    mkdirSync(join(testAgentDir, '.claude'), { recursive: true })
+    // no writeAgentSecurityProfile call: resolves to the default (permissive) profile.
+    expect(ensureReadonlyCommandGate(TEST_AGENT)).toBe(false)
+    const settingsPath = join(testAgentDir, '.claude', 'settings.json')
+    if (existsSync(settingsPath)) {
+      const written = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+      expect(ptuCommands(written).some((c) => c.includes('readonly-command-gate.py'))).toBe(false)
+    }
+  })
+
+  it('never wires the gate for MAIN_AGENT_ID', () => {
+    // MAIN_AGENT_ID is not profile-managed (resolveAgentSecurityProfile must
+    // never be called for it) -- the early return must fire before any
+    // profile resolution is attempted, so this must not throw either.
+    expect(() => ensureReadonlyCommandGate(MAIN_AGENT_ID)).not.toThrow()
+    expect(ensureReadonlyCommandGate(MAIN_AGENT_ID)).toBe(false)
   })
 })

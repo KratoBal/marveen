@@ -13,7 +13,13 @@ export interface ProfileTemplate {
   label: string
   description: string
   permissionMode: 'strict' | 'permissive'
-  filesystem: { allow: string[]; deny: string[] }
+  // `directories` is NOT a third allow-list: it moves the WORKING-DIRECTORY
+  // boundary, which is a separate check from allow/deny. Measured 2026-09-04:
+  // a live `Read(${HOME}/marveen/**)` allow rule still prompted on every read,
+  // because the file sat outside the agent's working directories. The runtime
+  // calls this `permissions.additionalDirectories` (the `--add-dir` flag is the
+  // launch-time form). deny still wins over it, so denied paths stay denied.
+  filesystem: { allow: string[]; deny: string[]; directories?: string[] }
 }
 
 export const PROFILES_DIR = join(PROJECT_ROOT, 'templates', 'profiles')

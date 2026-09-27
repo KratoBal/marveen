@@ -6,13 +6,19 @@
   "filesystem": {
     "allow": [
       "Read(${AGENT_DIR}/**)",
+      "Read(${HOME}/marveen/exchange/**)",
       "Write(${AGENT_DIR}/**)",
       "Edit(${AGENT_DIR}/**)",
       "Read(${HOME}/Downloads/**)",
       "Bash(ls:*)",
       "Bash(cat:*)",
+      "Bash(ps:*)",
+      "Bash(/bin/ps:*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Bash(/usr/bin/ps:*)",
+      "Bash(bash ${HOME}/marveen/scripts/keres.sh:*)",
+      "Bash(bash ${HOME}/marveen/scripts/tartalom.sh:*)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",
@@ -23,6 +29,9 @@
       "Bash(sudo:*)",
       "Bash(rm:*)",
       "Bash(curl -X POST:*)"
+    ],
+    "directories": [
+      "${HOME}/marveen"
     ]
   }
 }

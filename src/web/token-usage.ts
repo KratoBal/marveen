@@ -6,6 +6,8 @@ import { createInterface } from 'node:readline'
 import { getDb } from '../db.js'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
+import { listAgentNames } from './agent-config.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
@@ -56,12 +58,20 @@ export function agentForProjectEntry(entry: string, mainDirName: string, workerD
   return null
 }
 
+// `projectRootOverride` exists for the tests, matching the convention
+// resolveAgentConfigDirForRead() already uses: the isolated dir is found by
+// probing the filesystem, so the probe root has to be redirectable to a
+// fixture. Production callers pass nothing.
 export function discoverAgentSources(opts: {
   roots?: string[]
   exportDir?: string
   workerHomes?: string[]
   projectRoot?: string
-} = {}): AgentTranscriptSource[] {
+  /** Test hook for the isolated-config probe root (resolveAgentConfigDirForRead). */
+  projectRootOverride?: string
+} | string = {}): AgentTranscriptSource[] {
+  // Older callers pass the probe-root override as a bare string.
+  if (typeof opts === 'string') opts = { projectRootOverride: opts }
   const sources: AgentTranscriptSource[] = []
   const workerHomes = opts.workerHomes ?? WORKER_HOMES
   const roots = opts.roots ?? [PROJECTS_DIR, ...workerHomes.map(h => join(h, '.claude-config', 'projects'))]
@@ -84,6 +94,48 @@ export function discoverAgentSources(opts: {
       if (agent) sources.push({ agent, projectDir: full })
     }
   }
+
+  // A sub-agent that runs under its own OS user writes into an ISOLATED config
+  // dir (agents/<name>/.claude-config/projects/...), not into ~/.claude. The
+  // loop above only ever sees the shared root, so from the moment an agent is
+  // migrated its token rows stop -- and they stop SILENTLY, because the old
+  // directory still exists and still parses. It looks like an idle agent.
+  //
+  // MEASURED 2026-08-21 10:15: all four sub-agents' newest transcript under
+  // ~/.claude/projects/-home-...-agents-<name>/ was frozen at 2026-08-18 17:44
+  // (0.15-0.53 MB), while the live files under agents/<name>/.claude-config/
+  // carried timestamps from minutes earlier and 3.9-7.2 MB. Three days of the
+  // fleet's consumption were missing from the monitor that a model-assignment
+  // decision was about to be based on.
+  //
+  // This is the same defect resolveAgentConfigDirForRead() was written for
+  // (the dashboard's context counter, fixed the same morning); reusing it is
+  // deliberate, so the two readers cannot drift apart again.
+  //
+  // Both roots are kept for a migrated agent, not swapped: the pre-migration
+  // history is real and lives only in the shared root. Duplicate rows are
+  // impossible anyway -- the UNIQUE INDEX on (agent, session_id, timestamp,
+  // input, output) plus INSERT OR IGNORE absorbs any overlap.
+  for (const name of listAgentNames()) {
+    let configDir: string | null = null
+    try { configDir = resolveAgentConfigDirForRead(name, opts.projectRootOverride) } catch { continue }
+    if (!configDir) continue
+    const isolatedProjects = join(configDir, 'projects')
+    if (!existsSync(isolatedProjects)) continue
+    let entries: string[]
+    try { entries = readdirSync(isolatedProjects) } catch { continue }
+    for (const entry of entries) {
+      const full = join(isolatedProjects, entry)
+      let stat
+      try { stat = statSync(full) } catch { continue }
+      if (!stat.isDirectory()) continue
+      // Attribution comes from WHOSE config dir this is, not from the encoded
+      // project name: an agent's isolated dir holds only that agent's work.
+      if (sources.some((s) => s.agent === name && s.projectDir === full)) continue
+      sources.push({ agent: name, projectDir: full })
+    }
+  }
+
   // Exported sub-agent usage: one dir per agent, named by the agent itself.
   const exportDir = opts.exportDir ?? USAGE_EXPORT_DIR
   let exported: string[] = []

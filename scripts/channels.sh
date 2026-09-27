@@ -256,8 +256,14 @@ fi
 # 409 hazard.
 _ensure_plugin_enabled() {
   local settings_file="$1"
+  # $2 lets the caller name a plugin other than the primary provider -- the
+  # CHANNEL_PLUGINS_EXTRA co-listeners need the same enabledPlugins entry, and
+  # without it Claude Code starts the primary plugin only (measured 2026-09-01:
+  # discord@claude-plugins-official sat at false, so the session came up with no
+  # Discord reply tool while the --channels flag still listed it).
+  local plugin_id="${2:-$PLUGIN_ID}"
   [ -f "$settings_file" ] || return 0
-  python3 - "$settings_file" "$PLUGIN_ID" <<'PYEOF'
+  python3 - "$settings_file" "$plugin_id" <<'PYEOF'
 import json, os, sys, tempfile
 
 path, plugin_id = sys.argv[1], sys.argv[2]
@@ -308,6 +314,10 @@ print("channels.sh: enabled %s in %s" % (plugin_id, path), flush=True)
 PYEOF
 }
 _ensure_plugin_enabled "$INSTALL_DIR/.claude/settings.json"
+for _p in ${CHANNEL_PLUGINS_EXTRA:-}; do
+  [ -n "$_p" ] && _ensure_plugin_enabled "$INSTALL_DIR/.claude/settings.json" "$_p"
+done
+unset _p
 unset -f _ensure_plugin_enabled
 
 # Build the extra --channels args from CHANNEL_PLUGINS_EXTRA (space-separated

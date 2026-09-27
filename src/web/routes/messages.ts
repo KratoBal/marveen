@@ -229,6 +229,22 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // One message by id. Measured 2026-09-08: `message-status` read the global
+  // /api/messages window, which the route caps at 200 rows, so every id older
+  // than that answered "nincs az utolso 200-ban" -- while the rows were still
+  // in the database and readable through the per-agent filter. Two agents took
+  // that for a limit of the system ("regi uzenetek idejet nem lehet lemerni")
+  // when only the command was missing. A row keyed by its own id cannot age out
+  // of a window it does not use.
+  const msgGetMatch = path.match(/^\/api\/messages\/(\d+)$/)
+  if (msgGetMatch && method === 'GET') {
+    const id = parseInt(msgGetMatch[1], 10)
+    const msg = getAgentMessage(id)
+    if (!msg) { json(res, { error: 'message not found', id }, 404); return true }
+    json(res, msg)
+    return true
+  }
+
   const msgUpdateMatch = path.match(/^\/api\/messages\/(\d+)$/)
   if (msgUpdateMatch && method === 'PUT') {
     const id = parseInt(msgUpdateMatch[1], 10)

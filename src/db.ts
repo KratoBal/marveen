@@ -1499,6 +1499,11 @@ export function getDailyLogDates(agentId: string, limit: number = 14): string[] 
 export interface RecallResult {
   logs: { id: number; agent_id: string; date: string; content: string; created_at: number }[]
   memories: Memory[]
+  // Board hits. Present only on the SEARCH path (recallSearch); the date-range
+  // path leaves them empty, because a card has no single "this happened on" day
+  // the way a log entry does -- it is created once and then keeps moving.
+  cards?: { id: string; title: string; status: string; assignee: string | null; updated_at: number }[]
+  comments?: { id: number; card_id: string; card_title: string; author: string; content: string; created_at: number }[]
   dateRange: { from: string; to: string }
 }
 
@@ -1575,11 +1580,36 @@ export function recallSearch(query: string, agentId?: string, limit = 50): Recal
     ? db.prepare(logSql).all(logPat, agentId, limit) as RecallResult['logs']
     : db.prepare(logSql).all(logPat, limit) as RecallResult['logs']
 
+  // THE BOARD IS THE FOURTH STORE, AND UNTIL 2026-09-02 NOTHING SEARCHED IT.
+  //
+  // Why it matters more than the card count suggests: a card's TITLE is a name,
+  // but its COMMENTS carry the decision -- what was measured, what the owner
+  // said, why a thing was dropped. Searching titles only would find the subject
+  // and miss the answer. Measured that morning: 419 cards, 1677 comments.
+  //
+  // LIKE, not FTS: there is no FTS index over the board, and building one is a
+  // schema change. A LIKE scan over these two tables is milliseconds at this
+  // size, and the caller (the recall hook) queries one keyword at a time, so a
+  // sentence never reaches here as a single pattern.
+  const cardPat = `%${escaped}%`
+  const cards = db.prepare(
+    `SELECT id, title, status, assignee, updated_at FROM kanban_cards
+     WHERE archived_at IS NULL AND (title LIKE ? ESCAPE '\\' OR IFNULL(description,'') LIKE ? ESCAPE '\\')
+     ORDER BY updated_at DESC LIMIT ?`
+  ).all(cardPat, cardPat, limit) as RecallResult['cards']
+
+  const comments = db.prepare(
+    `SELECT c.id, c.card_id, k.title AS card_title, c.author, c.content, c.created_at
+     FROM kanban_comments c JOIN kanban_cards k ON k.id = c.card_id
+     WHERE k.archived_at IS NULL AND c.content LIKE ? ESCAPE '\\'
+     ORDER BY c.created_at DESC LIMIT ?`
+  ).all(cardPat, limit) as RecallResult['comments']
+
   const dates = logs.map(l => l.date)
   const from = dates.length ? dates[dates.length - 1] : ''
   const to = dates.length ? dates[0] : ''
 
-  return { logs, memories, dateRange: { from, to } }
+  return { logs, memories, cards, comments, dateRange: { from, to } }
 }
 
 // --- Background tasks ---

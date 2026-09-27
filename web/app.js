@@ -12643,13 +12643,19 @@ function renderRecallSummary(el, data) {
   }
   parts.push(t('recall.summary.log_count', { n: s.logCount }))
   parts.push(t('recall.summary.memory_count', { n: s.memoryCount }))
+  // The board arrives only on the search path. `undefined` means "not searched",
+  // which is not the same as zero, so the counts appear only when they are real.
+  if (s.cardCount !== undefined) parts.push(t('recall.summary.card_count', { n: s.cardCount }))
+  if (s.commentCount !== undefined) parts.push(t('recall.summary.comment_count', { n: s.commentCount }))
   if (s.agents.length) parts.push(`${t('recall.summary.agents')}: ${s.agents.map(esc).join(', ')}`)
   el.innerHTML = `<div class="recall-summary-row">${parts.map(p => `<span>${p}</span>`).join('')}</div>`
 }
 
 function renderRecallTimeline(el, data) {
   const { logs, memories } = data
-  if (!logs.length && !memories.length) {
+  const cards = data.cards || []
+  const comments = data.comments || []
+  if (!logs.length && !memories.length && !cards.length && !comments.length) {
     el.innerHTML = `<p class="recall-empty">${t('recall.empty_period')}</p>`
     return
   }
@@ -12657,6 +12663,10 @@ function renderRecallTimeline(el, data) {
   const items = []
   logs.forEach(l => items.push({ type: 'log', ts: l.created_at, agent: l.agent_id, date: l.date, content: l.content, label: l.created_label }))
   memories.forEach(m => items.push({ type: 'memory', ts: m.created_at, agent: m.agent_id, category: m.category, content: m.content, keywords: m.keywords, label: m.created_label }))
+  // A card is placed on the timeline by its LAST MOVE, not its creation: what the
+  // reader wants to find is when the subject was last touched.
+  cards.forEach(c => items.push({ type: 'card', ts: c.updated_at, agent: c.assignee || '', category: c.status, content: c.title, label: c.updated_label }))
+  comments.forEach(c => items.push({ type: 'comment', ts: c.created_at, agent: c.author, card_title: c.card_title, content: c.content, label: c.created_label }))
   // #52/#53: apply sort order (desc = newest first, default)
   items.sort((a, b) => recallSortDesc ? b.ts - a.ts : a.ts - b.ts)
 
@@ -12676,6 +12686,30 @@ function renderRecallTimeline(el, data) {
             <span class="recall-badge recall-badge-agent">${esc(item.agent)}</span>
           </div>
         </div>
+        <div class="recall-item-content">${esc(item.content)}</div>
+      </div>`
+    } else if (item.type === 'card') {
+      html += `<div class="recall-item recall-card">
+        <div class="recall-item-header">
+          <span class="recall-item-label">${esc(item.label)}</span>
+          <div class="recall-item-badges">
+            <span class="recall-badge recall-badge-cat">${esc(t('recall.badge.card'))}</span>
+            <span class="recall-badge recall-badge-cat">${esc(item.category)}</span>
+            ${item.agent ? `<span class="recall-badge recall-badge-agent">${esc(item.agent)}</span>` : ''}
+          </div>
+        </div>
+        <div class="recall-item-content">${esc(item.content)}</div>
+      </div>`
+    } else if (item.type === 'comment') {
+      html += `<div class="recall-item recall-comment">
+        <div class="recall-item-header">
+          <span class="recall-item-label">${esc(item.label)}</span>
+          <div class="recall-item-badges">
+            <span class="recall-badge recall-badge-cat">${esc(t('recall.badge.comment'))}</span>
+            <span class="recall-badge recall-badge-agent">${esc(item.agent)}</span>
+          </div>
+        </div>
+        <div class="recall-item-keywords">${esc(item.card_title || '')}</div>
         <div class="recall-item-content">${esc(item.content)}</div>
       </div>`
     } else {

@@ -6,6 +6,7 @@
   "filesystem": {
     "allow": [
       "Read(${AGENT_DIR}/**)",
+      "Read(${HOME}/marveen/exchange/**)",
       "Write(${AGENT_DIR}/**)",
       "Edit(${AGENT_DIR}/**)",
       "Read(/tmp/**)",
@@ -16,10 +17,13 @@
       "Bash(python3:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
+      "Bash(ps:*)",
+      "Bash(/bin/ps:*)",
       "Bash(pwd:*)",
       "Bash(curl:*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Bash(/usr/bin/ps:*)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",

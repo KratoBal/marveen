@@ -1,95 +1,146 @@
 #!/bin/bash
-# Utemezett feladatok futasanak lekerdezese HELYES ido-kezelessel.
+# ANSWERS: Mikor futott le utoljara egy utemezett feladat (a futasok ts mezoje EZREDMASODPERC).
 #
-# Miert letezik ez a szkript: a task_runs.ts oszlop MILLISZEKUNDUM epoch, a
-# store/claudeclaw.db tobbi timestampje viszont MASODPERC. Ha valaki kezzel ir
-# ido-szurot (strftime('%s','2026-08-19 08:00')*1000), az SQLite a stringet
-# UTC-nek veszi -> CEST alatt ket oraval a jovobe csuszik az ablak, es a
-# lekerdezes URES halmazt ad. Az ures halmaz pontosan ugy nez ki, mint "a task
-# nem futott". 2026-08-19-en ez ketszer sult el egy koron belul.
+# === EZ A JAVITOTT VALTOZAT, ES NEM A HELYEN ALL ===
 #
-# A masik csapda, amit ez kivalt: "SELECT name, max(ts) ... GROUP BY name
-# HAVING ts=max(ts)" NEM megbizhatoan a legutolso sort adja vissza.
+# A flotta valtozata a `scripts/task-last-run.sh`. Oda NEM tudok irni: a
+# konyvtar `marveen:marveen`, `drwxr-xr-x`, en `agent-murena` vagyok. Ez
+# RENDSZER-szintu korlat (fajl-tulajdon), nem munkamenet-beallitas -- egy
+# ujraindulas nem valtoztat rajta. Ezert all itt, es a beemeles mas keze.
+#
+# === MIERT KELLETT UJRAIRNI (merve 2026-09-02 este) ===
+#
+# A regi valtozat `sqlite3`-at hivott, ot helyen. AZ EBBEN A KONTENERBEN NINCS
+# TELEPITVE -- tehat a szkript MINDEN hivasa azonnal elhasalt. Egy eszkoz, ami
+# nem fut le, ugyanugy nez ki, mint egy eszkoz, aminek nincs adata.
+#
+# ES A KOZVETLEN ADATBAZIS-OLVASAS SEM UT: a `store/claudeclaw.db` modja 600,
+# tulajdonosa `marveen`. Megmertem: a python3 beepitett `sqlite3` modulja MEGY
+# (3.40.1), a FAJL nem olvashato. Ket kulonbozo korlat, es csak az egyik latszik
+# a hibauzeneten.
+#
+# Ami viszont megy: a dashboard API, ugyanazzal a Bearer tokennel, amit a tobbi
+# flotta-szkript is hasznal.
+#
+#   GET /api/schedules            -> az utemezett feladatok
+#   GET /api/schedules/<nev>/runs -> az utolso 10 futas (ts, status, agent)
+#
+# === A MERTEKEGYSEG, AMI CSENDBEN ELROMLIK ===
+#
+# A `ts` EZREDMASODPERC epoch, mert a `task_runs` tablabol jon valtozatlanul.
+# Masodperckent ertelmezve 58641-et ir 2026 helyett -- ez HANGOS, tehat nem ez a
+# veszelyes eset. A veszelyes az, ha valaki "javit" egy osztassal ott, ahol nem
+# kell: akkor a datum nehany nappal melle megy, es az mar nem tunik fel. Ezert
+# all a valtas EGY helyen (`_ido`), es sehol maskor nem osztunk.
+#
+# === AMIT EZ A VALTOZAT NEM TUD, ES KI IS MONDJA ===
+#
+# A `--stats` (fired/skipped arany egy ablakban) nem keszult el. Az ok
+# szerkezeti: a runs vegpont feladatonkent az UTOLSO TIZ futast adja, es a tizes
+# hatar a szerver utvonalaban all, nem parameterben. Egy 24 oras ablakra vett
+# arany ezert csonka lenne -- es egy csonka arany ugy nez ki, mint egy meres.
 #
 # Hasznalat:
-#   scripts/task-last-run.sh                 # minden task utolso futasa
-#   scripts/task-last-run.sh pr-figyeles     # egy task utolso 10 futasa
-#   scripts/task-last-run.sh pr-figyeles 24  # az utolso 24 oraban
-#   scripts/task-last-run.sh --stats 24      # fired/skipped bontas + kimaradasi rata
-#
-# A --stats azert kerult ide (2026-08-21): a heartbeat "9 fired, 1 skipped"
-# sorat akartam ellenorizni, ami NEM frissesseg-kerdes, ezert nem jutott
-# eszembe ez a szkript, es kezzel irt SQL-t hasznaltam -- amiben a ts/1000
-# osztas kimaradt, tehat a "24 oras" szuro a TELJES tablat adta vissza
-# (9012 sor 24 orakent). Nem ures halmaz jott, hanem TULZO szam, ami sokkal
-# csendesebb hiba. A tanulsag: minden task_runs-kerdes ide tartozik, nem csak
-# az "utoljara mikor futott".
+#   task-last-run.sh                 # minden feladat utolso futasa
+#   task-last-run.sh pr-figyeles     # egy feladat utolso 10 futasa
+#   task-last-run.sh pr-figyeles 24  # ebbol az utolso 24 oraban allok
+set -uo pipefail
 
-set -euo pipefail
-DB="$(cd "$(dirname "$0")/.." && pwd)/store/claudeclaw.db"
-NAME="${1:-}"
-HOURS="${2:-}"
+TOKEN_FILE="${MARVEEN_TOKEN_FILE:-/home/marveen/marveen/store/.dashboard-token}"
+PORT="${MARVEEN_WEB_PORT:-3420}"
 
-if [ "$NAME" = "--stats" ]; then
-  # Kimaradasi rata task-onkent. Az ablak relativ epoch-on, a ts/1000 osztas
-  # KOTELEZO -- nelkule minden sor atmegy a szuron, es a szam a tabla eleteben
-  # mert osszeget adja vissza az ablak helyett.
-  W="${HOURS:-24}"
-  echo "-- ablak: utolso ${W} ora | MA=$(date '+%Y-%m-%d %H:%M:%S') --"
-  sqlite3 -header -column "$DB" "
-    SELECT name,
-           sum(status='fired')   AS fired,
-           sum(status='skipped') AS skipped,
-           CASE WHEN count(*)=0 THEN NULL
-                ELSE round(100.0*sum(status='skipped')/count(*),1) END AS skip_pct,
-           datetime(max(ts)/1000,'unixepoch','localtime') AS utolso
-      FROM task_runs
-     WHERE ts/1000 > strftime('%s','now') - ($W * 3600)
-     GROUP BY name
-     ORDER BY skipped DESC, name;"
-  echo
-  echo "-- pozitiv kontroll: az ablakon KIVULI sorok szama (ha 0, az ablak gyanusan tag) --"
-  sqlite3 "$DB" "SELECT count(*) FROM task_runs WHERE ts/1000 <= strftime('%s','now') - ($W * 3600);"
-  exit 0
+[ -r "$TOKEN_FILE" ] || { echo "FAIL: nincs olvashato token: $TOKEN_FILE" >&2; exit 1; }
+
+if [ "${1:-}" = "--stats" ]; then
+  cat >&2 <<'MSG'
+A --stats nem erheto el ebben a valtozatban, es szandekosan nem adok helyette
+becslest.
+
+AZ OK: a futasokat kiszolgalo vegpont feladatonkent az UTOLSO TIZ futast adja
+vissza, es a tizes hatar a szerver utvonalaban all, nem parameterben. Egy 24
+oras ablakra vett fired/skipped arany ezert csonka lenne -- es egy csonka arany
+ugy nez ki, mint egy meres.
+
+Ha erre szukseg van, az nem szkript-kerdes: a szervernek kell egy vegpont, ami
+ablakra szamol.
+MSG
+  exit 2
 fi
 
-if [ -z "$NAME" ]; then
-  # Minden task utolso futasa. A rendezes az epoch-on tortenik, a kiiras
-  # localtime-ban -- a datum MINDIG benne van, hogy a frissesseg-itelet ne
-  # egy csupasz ora-percbol szulessen.
-  sqlite3 -header -column "$DB" "
-    SELECT name,
-           agent,
-           datetime(max(ts)/1000,'unixepoch','localtime') AS utolso_futas,
-           round((strftime('%s','now') - max(ts)/1000)/60.0, 1) AS perce,
-           count(*) AS futasok_osszesen
-      FROM task_runs
-     GROUP BY name, agent
-     ORDER BY max(ts) DESC;"
-  exit 0
-fi
+MARVEEN_TASK_NAME="${1:-}" MARVEEN_TASK_HOURS="${2:-}" \
+MARVEEN_TOKEN_FILE="$TOKEN_FILE" MARVEEN_PORT="$PORT" python3 - <<'PY'
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
-WHERE="name = '$NAME'"
-if [ -n "$HOURS" ]; then
-  # Relativ ablak epoch-on: sem a timezone, sem az off-by-one-hour nem merul fel.
-  WHERE="$WHERE AND ts/1000 > strftime('%s','now') - ($HOURS * 3600)"
-fi
+TOKEN = open(os.environ["MARVEEN_TOKEN_FILE"]).read().strip()
+API = "http://localhost:%s/api" % os.environ["MARVEEN_PORT"]
+NEV = os.environ.get("MARVEEN_TASK_NAME") or ""
+ORA = os.environ.get("MARVEEN_TASK_HOURS") or ""
 
-sqlite3 -header -column "$DB" "
-  SELECT datetime(ts/1000,'unixepoch','localtime') AS futas,
-         status,
-         agent
-    FROM task_runs
-   WHERE $WHERE
-   ORDER BY ts DESC
-   LIMIT 40;"
 
-# POZITIV KONTROLL: ha a fenti ures, ez megmutatja, hogy a NEV rossz-e, vagy
-# tenyleg nem futott. Ures szuro nelkuli szamlalas -- ha ez is 0, a task neve
-# nem letezik a tablaban.
-echo
-echo "-- pozitiv kontroll (szuro nelkul, ugyanerre a nevre) --"
-sqlite3 -header -column "$DB" "
-  SELECT count(*) AS osszes_futas,
-         datetime(max(ts)/1000,'unixepoch','localtime') AS legutolso
-    FROM task_runs WHERE name = '$NAME';"
+def get(path):
+    req = urllib.request.Request(API + path, headers={"Authorization": "Bearer " + TOKEN})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _ido(ts):
+    """AZ EGYETLEN HELY, AHOL EZREDMASODPERCET MASODPERCRE VALTUNK."""
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts / 1000))
+
+
+def runs(nev):
+    return get("/schedules/%s/runs" % urllib.parse.quote(nev, safe=""))
+
+
+try:
+    nevek = [s["name"] for s in get("/schedules")]
+except urllib.error.URLError as hiba:
+    print("FAIL: a dashboard API nem elerheto (%s). Fut a szolgaltatas?" % hiba, file=sys.stderr)
+    raise SystemExit(1)
+
+if NEV:
+    if NEV not in nevek:
+        print("Nincs ilyen utemezett feladat: %s" % NEV, file=sys.stderr)
+        print("A letezok: %s" % ", ".join(sorted(nevek)), file=sys.stderr)
+        raise SystemExit(1)
+    sorok = runs(NEV)
+    if ORA:
+        hatar = time.time() * 1000 - float(ORA) * 3600 * 1000
+        szurt = [r for r in sorok if r["ts"] >= hatar]
+        print("-- %s | utolso %s ora | %d futas a rendelkezesre allo %d-bol --"
+              % (NEV, ORA, len(szurt), len(sorok)))
+        if len(szurt) == len(sorok) == 10:
+            # A CSONKULAST KIMONDJUK. Ha mind a tiz belefer az ablakba, akkor az
+            # ablakban ALLHAT TOBB is, amirol a vegpont nem szol.
+            print("   FIGYELEM: mind a tiz futas belefer az ablakba, tehat az")
+            print("   ablakban allhat tobb is. A vegpont feladatonkent tizet ad.")
+        sorok = szurt
+    else:
+        print("-- %s | az utolso %d futas --" % (NEV, len(sorok)))
+    if not sorok:
+        print("   (nincs futas)")
+    for r in sorok:
+        print("   %s  %-8s %s" % (_ido(r["ts"]), r.get("status", "?"), r.get("agent", "")))
+    raise SystemExit(0)
+
+utolsok = []
+nelkul = []
+for nev in nevek:
+    sorok = runs(nev)
+    if sorok:
+        utolsok.append((sorok[0]["ts"], nev, sorok[0].get("status", "?")))
+    else:
+        nelkul.append(nev)
+
+utolsok.sort(reverse=True)
+print("-- %d utemezett feladat, ebbol %d-nek van futasa | most: %s --"
+      % (len(nevek), len(utolsok), time.strftime("%Y-%m-%d %H:%M:%S")))
+for ts, nev, status in utolsok:
+    print("   %s  %-8s %s" % (_ido(ts), status, nev))
+if nelkul:
+    # A "nincs futasa" NEM ugyanaz, mint a "nem tudjuk". Kulon irjuk ki, hogy egy
+    # hianyzo sor ne latszodjon hibanak.
+    print("\n-- %d feladatnak NINCS rogzitett futasa --" % len(nelkul))
+    for nev in sorted(nelkul):
+        print("   %s" % nev)
+PY

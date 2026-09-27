@@ -395,6 +395,13 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   }
   if (kanbanCommentsMatch && method === 'POST') {
     const cardId = decodeURIComponent(kanbanCommentsMatch[1])
+    // A kártya LÉTEZÉSE, a törzs beolvasása ELŐTT. Enélkül egy elgépelt
+    // azonosító 200-at kap és a komment egy nem létező kártya alá mentődik --
+    // a hívó sikert lát, az eredmény sehol (mérve 2026-09-07: a `2310d8da`
+    // helyett `2310da`, és csak azért derült ki, mert a válasz ki volt íratva).
+    // A `breakdown` ág ugyanebben a fájlban már így csinálja.
+    const card = getKanbanCard(cardId)
+    if (!card) { json(res, { error: 'Kártya nem található' }, 404); return true }
     const body = await readBody(req)
     const { author, content } = JSON.parse(body.toString())
     if (!author || !content) { json(res, { error: 'Szerző és tartalom kötelező' }, 400); return true }
