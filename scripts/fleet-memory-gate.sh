@@ -33,7 +33,12 @@ set -uo pipefail
 MODE=""; ARG=""; DRY_RUN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --check)   MODE="check"; ARG="${2:-}"; shift 2 ;;
+    # `shift 2` FAILS (and shifts nothing) when only one arg is left, so a bare
+    # `--check` used to spin this loop forever -- the "needs an agent name" guard
+    # further down was unreachable dead code. Measured 2026-08-16: the call hung
+    # past a 120s timeout with no output, which on the fleet-safe-start path looks
+    # exactly like a wedged fleet. Shift defensively instead.
+    --check)   MODE="check"; ARG="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
     --verdict) MODE="verdict"; shift ;;
     --status)  MODE="status"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -107,8 +112,29 @@ avail_mb=$(( mem_avail / 1024 ))
 
 # --- count running non-core agents (tmux agent-* sessions; dependency-free) ---
 running=0
-if command -v tmux >/dev/null 2>&1; then
-  running="$(tmux ls 2>/dev/null | grep -c '^agent-' || echo 0)"
+# KET HIBA ALLT EBBEN AZ EGY SORBAN, es egyutt azt jelentettek, hogy AZ AGENS-CAP
+# SOHA NEM ERVENYESULT ezen a telepitesen (sajat meres, 2026-09-22):
+#
+#   running="$(tmux ls 2>/dev/null | grep -c '^agent-' || echo 0)"
+#
+#   1. A `tmux ls` CSAK A SAJAT FELHASZNALO SOCKETJET latja. Az agensek kulon UID
+#      alatt futnak, sajat socketen (/tmp/tmux-1001, -1002, ...), tehat ez a hivas
+#      nulla `agent-` sort talal AKKOR IS, ha mind a hat fut. Szerkezetileg nulla.
+#   2. A `grep -c` nulla talalatnal KIIR egy `0`-t ES 1-gyel lep ki, tehat a
+#      `|| echo 0` IS lefut: az ertek "0\n0" lesz, ket sor. Emiatt a lenti
+#      `(( running >= AGENT_CAP ))` szintaktikai hibaval elszall, a szkript pedig
+#      (nincs `set -e`) tovabbmegy es ENGEDELYT ad.
+#
+# Vagyis a kapu nem tevedett a szamban, hanem a szamitas MEG SEM TORTENT MEG. Egy
+# orzo, ami mindig enged, ugyanaz, mint egy orzo, ami nincs -- csak megnyugtat.
+#
+# A mostani szamolas a folyamatlistat nezi, mert az UID-hataron ATLAT, es nem kell
+# hozza sudo. Nincs benne awk: a profilok egy resze nem engedi.
+if command -v ps >/dev/null 2>&1; then
+  running="$(ps -eo user:16,args 2>/dev/null | grep -E '^agent-[a-z]+ .*tmux' | sed 's/ .*//' | sort -u | grep -c . )" || running=0
+  [ -n "$running" ] || running=0
+elif command -v tmux >/dev/null 2>&1; then
+  running="$(tmux ls 2>/dev/null | grep -c '^agent-')" || running=0
 fi
 
 is_core() {

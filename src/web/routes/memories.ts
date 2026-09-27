@@ -13,21 +13,36 @@ import type { RouteContext } from './types.js'
 // src/db.ts so the API rejects bad values before they even reach SQLite.
 const MEMORY_CATEGORIES = new Set(['hot', 'warm', 'cold', 'shared'])
 
-const SUSPICIOUS_PATTERNS = [
-  /\bcurl\s+(-[a-zA-Z]\s+)*https?:\/\//i,
-  /\bbash\s+-c\b/i,
-  /\beval\s*\(/i,
-  /\bexec\s*\(/i,
-  /\bimport\s+subprocess\b/i,
-  /ignore\s+(all\s+)?previous\s+instructions/i,
-  /override\s+your\s+(instructions|rules|safety|guidelines)/i,
-  /forget\s+your\s+(instructions|rules|safety|guidelines|training)/i,
-  /new\s+persona/i,
-  /\brm\s+-rf\b/i,
+// Each pattern carries a LABEL, and the label is returned to the caller when a
+// save is rejected. Measured 2026-09-01: an agent's memory was refused because
+// an explanatory sentence about the CI mentioned `rm -rf`. The rejection said
+// only "Content rejected by security filter", so the writer had to guess which
+// of ten patterns had matched -- and guessed right only because the text was
+// fresh in mind. A filter that cannot say what it caught turns every rejection
+// into a hunt, and the next agent will report "the memory API is down".
+//
+// Naming the matched label leaks nothing that is not already in this file: this
+// is hygiene against an agent pasting a command or an injected instruction into
+// its own long-term memory, not a boundary against an attacker who can read the
+// repository.
+const SUSPICIOUS_PATTERNS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  { label: 'curl-url', pattern: /\bcurl\s+(-[a-zA-Z]\s+)*https?:\/\//i },
+  { label: 'bash-c', pattern: /\bbash\s+-c\b/i },
+  { label: 'eval-call', pattern: /\beval\s*\(/i },
+  { label: 'exec-call', pattern: /\bexec\s*\(/i },
+  { label: 'import-subprocess', pattern: /\bimport\s+subprocess\b/i },
+  { label: 'ignore-previous-instructions', pattern: /ignore\s+(all\s+)?previous\s+instructions/i },
+  { label: 'override-your-instructions', pattern: /override\s+your\s+(instructions|rules|safety|guidelines)/i },
+  { label: 'forget-your-instructions', pattern: /forget\s+your\s+(instructions|rules|safety|guidelines|training)/i },
+  { label: 'new-persona', pattern: /new\s+persona/i },
+  { label: 'rm-rf', pattern: /\brm\s+-rf\b/i },
 ]
 
-function containsSuspiciousContent(content: string): boolean {
-  return SUSPICIOUS_PATTERNS.some((pattern) => pattern.test(content))
+// Returns the label of the first pattern that matched, or null when the content
+// is clean. Returning the label rather than a boolean is the whole point.
+function suspiciousContentLabel(content: string): string | null {
+  const hit = SUSPICIOUS_PATTERNS.find((entry) => entry.pattern.test(content))
+  return hit ? hit.label : null
 }
 
 export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
@@ -37,9 +52,14 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     const body = await readBody(req)
     const data = JSON.parse(body.toString()) as { agent_id?: string; content: string; tier?: string; category?: string; keywords?: string }
     if (!data.content?.trim()) { json(res, { error: 'Content is required' }, 400); return true }
-    if (containsSuspiciousContent(data.content)) {
-      logger.warn({ agent: data.agent_id }, 'Memory content rejected: suspicious pattern')
-      json(res, { error: 'Content rejected by security filter' }, 400)
+    const suspicious = suspiciousContentLabel(data.content)
+    if (suspicious) {
+      logger.warn({ agent: data.agent_id, pattern: suspicious }, 'Memory content rejected: suspicious pattern')
+      json(res, {
+        error: 'Content rejected by security filter',
+        pattern: suspicious,
+        hint: `A tartalom "${suspicious}" mintara illeszkedik. Ha ez magyarazo szoveg volt, ird korul, es a mentes atmegy.`,
+      }, 400)
       return true
     }
     if (data.tier && !data.category) {

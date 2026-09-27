@@ -138,12 +138,22 @@ def main():
     if len(snippet) > 160:
         snippet = snippet[:157] + "..."
 
+    # The ledger stores no provider column, so this hook CANNOT know which
+    # channel the chat_id belongs to. Naming one provider here was a real
+    # defect, measured 2026-09-01 14:22: a Discord thread id was reported as a
+    # "Telegram message", and the directive told the model to send that id to
+    # the Telegram reply tool -- where it would have gone nowhere. A guard that
+    # names the wrong destination is worse than one that names none.
     reason = (
-        f"⚠️ VÁLASZOLATLAN TELEGRAM-ÜZENET (chat_id={chat_id}): \"{snippet}\"\n"
-        f"A fordulót NEM zárhatod le, amíg NEM küldtél Telegram-választ a "
-        f"mcp__plugin_telegram_telegram__reply toolon keresztül (chat_id={chat_id}). "
+        f"⚠️ VÁLASZOLATLAN BEJÖVŐ ÜZENET (chat_id={chat_id}): \"{snippet}\"\n"
+        f"A fordulót NEM zárhatod le, amíg NEM küldtél választ ANNAK A CSATORNÁNAK "
+        f"a reply tooljával, AHONNAN az üzenet jött (chat_id={chat_id}). A chat_id "
+        f"mondja meg, melyik csatorna: Telegramnál "
+        f"mcp__plugin_telegram_telegram__reply, Discordnál "
+        f"mcp__plugin_discord_discord__reply. NE küldd át másik csatornára: egy "
+        f"idegen chat_id ott nem létezik. "
         f"A sima szöveges (assistant text) kimenet NEM jut el a felhasználóhoz -- "
-        f"ő csak a Telegramot látja. Küldd el a választ a reply toollal MOST, "
+        f"ő csak a csatornát látja. Küldd el a választ a reply toollal MOST, "
         f"utána zárhatod a fordulót."
     )
     print(json.dumps({"decision": "block", "reason": reason}))

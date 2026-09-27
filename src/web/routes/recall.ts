@@ -225,7 +225,7 @@ export async function tryHandleRecall(ctx: RouteContext): Promise<boolean> {
   return false
 }
 
-function formatRecallResult(result: { logs: any[]; memories: any[]; dateRange: { from: string; to: string } }) {
+function formatRecallResult(result: { logs: any[]; memories: any[]; cards?: any[]; comments?: any[]; dateRange: { from: string; to: string } }) {
   return {
     dateRange: result.dateRange,
     logs: result.logs.map(l => ({
@@ -237,9 +237,21 @@ function formatRecallResult(result: { logs: any[]; memories: any[]; dateRange: {
       embedding: undefined,
       created_label: new Date(m.created_at * 1000).toLocaleString('hu-HU', { timeZone: TZ }),
     })),
+    // The board arrives only on the search path; the date-range path leaves both
+    // undefined, and an empty array there would claim "we looked and found none".
+    cards: result.cards?.map(c => ({
+      ...c,
+      updated_label: new Date(c.updated_at * 1000).toLocaleString('hu-HU', { timeZone: TZ }),
+    })),
+    comments: result.comments?.map(c => ({
+      ...c,
+      created_label: new Date(c.created_at * 1000).toLocaleString('hu-HU', { timeZone: TZ }),
+    })),
     summary: {
       logCount: result.logs.length,
       memoryCount: result.memories.length,
+      cardCount: result.cards?.length,
+      commentCount: result.comments?.length,
       agents: [...new Set([...result.logs.map(l => l.agent_id), ...result.memories.map(m => m.agent_id)])],
     },
   }

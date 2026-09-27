@@ -6,13 +6,20 @@
   "filesystem": {
     "allow": [
       "Read(${AGENT_DIR}/**)",
+      "Read(${HOME}/marveen/exchange/**)",
       "Write(${AGENT_DIR}/**)",
       "Edit(${AGENT_DIR}/**)",
       "Read(${HOME}/Downloads/**)",
       "Bash(ls:*)",
       "Bash(cat:*)",
+      "Bash(ps:*)",
+      "Bash(/bin/ps:*)",
+      "Bash(find ${AGENT_DIR}:*)",
+      "Bash(/usr/bin/find ${AGENT_DIR}:*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Bash(/usr/bin/ps:*)",
+      "Bash(/bin/find ${AGENT_DIR}:*)"
     ],
     "deny": [
       "Read(${HOME}/.ssh/**)",
