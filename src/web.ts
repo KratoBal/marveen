@@ -67,6 +67,7 @@ import { tryHandleStatus } from './web/routes/status.js'
 import { tryHandleAutonomy } from './web/routes/autonomy.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
+import { tryHandleMeasurements, refreshMeasurements } from './web/routes/measurements.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
@@ -204,6 +205,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleAutonomy(routeCtx)) return
       if (await tryHandleApprovals(routeCtx)) return
       if (await tryHandleTokenUsage(routeCtx)) return
+      if (await tryHandleMeasurements(routeCtx)) return
       if (await tryHandleCosts(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
       if (await tryHandleSpans(routeCtx)) return
@@ -447,6 +449,13 @@ export function startWebServer(port = 3420): http.Server {
   const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
   }, 60 * 60 * 1000)
+  // Measurement Layer v1: quota samples arrive every 5 min from the statusline,
+  // so the index is refreshed on the same cadence. Cheap: a JSONL re-read plus
+  // one pass over kanban_card_events. Runs AFTER the token collector's data,
+  // so a run's token sums lag by at most the collector's 1h poll.
+  const measurementInterval = webOnly ? undefined : setInterval(() => {
+    try { refreshMeasurements() } catch (err) { logger.warn({ err }, 'Measurement refresh failed') }
+  }, 5 * 60 * 1000)
   if (!webOnly) {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Startup token usage collection failed'))
     logger.info('Token usage auto-collect started (1h poll + startup)')
@@ -587,6 +596,7 @@ export function startWebServer(port = 3420): http.Server {
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)
     clearInterval(tokenCollectInterval)
+    clearInterval(measurementInterval)
     return origClose(cb)
   }
 

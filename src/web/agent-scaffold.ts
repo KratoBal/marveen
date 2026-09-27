@@ -5,6 +5,7 @@ import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, HEARTBEAT_AGENT_ID, BOT_NAME, 
 import { channelStateDir } from '../channel-provider.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { injectMeasureStatusLine } from './measure-statusline.js'
 import { findDuplicateJsonKeys } from './json-dup-keys.js'
 import { logger } from '../logger.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities } from './agent-config.js'
@@ -383,6 +384,15 @@ export function ensureAgentProvenanceHook(name: string): boolean {
   return true
 }
 
+// Measurement Layer v1: every sub-agent's statusLine is the quota sampler and
+// its own token exporter (scripts/measure-statusline.py --export-usage). It must
+// run AS the agent's OS user -- that is the only identity that can read the 0600
+// transcripts -- and a statusLine command does exactly that. Owner approval for
+// this profile/settings change: Balazs, 2026-09-27 15:30 UTC (Discord, main
+// channel, message_id 1553791029549998101). The helpers live in
+// measure-statusline.ts so the worker provisioning installs the same line.
+export { measureStatusLineCommand, injectMeasureStatusLine } from './measure-statusline.js'
+
 export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemplate): void {
   const agentRoot = agentDir(name)
   const settingsDir = join(agentRoot, '.claude')
@@ -423,6 +433,7 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
     injectDigestProvenanceGate(existing)
   }
   injectEgressGate(existing)
+  if (name !== MAIN_AGENT_ID) injectMeasureStatusLine(existing, name, true)
   atomicWriteFileSync(settingsPath, JSON.stringify(existing, null, 2))
 }
 
