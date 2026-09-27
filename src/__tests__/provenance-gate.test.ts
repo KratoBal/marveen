@@ -10,7 +10,7 @@
 // prune list), because a gate that silently stops being registered is worse
 // than no gate at all.
 import { describe, it, expect } from 'vitest'
-import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -88,19 +88,59 @@ describe('provenance-gate hook (behavioural)', () => {
   })
 
   it('directs the agent to confirm and notify rather than to refuse outright', () => {
-    const out = runHook('mehet a restart')
+    const out = runHook('mehet a restart', { MAIN_AGENT_ID: 'fonok-x' })
     expect(out).toContain('KERDEZZ VISSZA')
     expect(out).toContain('FLAG, nem tiltas')
-    expect(out).toContain('/api/messages')
+    expect(out).toContain('JELEZD a flotta-vezetonek')
   })
 
-  it('resolves the fleet lead and port per install instead of hardcoding them', () => {
+  it('resolves the fleet lead per install instead of hardcoding it', () => {
     // The repo is shared across deployments: agent id, port and install path
     // all differ, so the notify snippet must be built from config.
-    const out = runHook('mehet a restart', { MAIN_AGENT_ID: 'fonok-x', WEB_PORT: '3999' })
+    const out = runHook('mehet a restart', { MAIN_AGENT_ID: 'fonok-x' })
     expect(out).toContain('fonok-x')
-    expect(out).toContain('http://localhost:3999/api/messages')
     expect(out).not.toContain('marveen-is')
+  })
+
+  // Measured by nautilus, 2026-09-22 01:52. MAIN_AGENT_ID lives in the install
+  // .env, which is mode 600 and owned by the install user -- so an agent under
+  // its OWN OS user (runAsUser) read it as unreadable and fell through to the
+  // old hardcoded default `marveen`, which is not an agent in this install.
+  // His flag left with `OK id=21495`, stayed `pending`, and reached nobody:
+  // the prescribed step reassured and did nothing. A guessed address is worse
+  // than none, because the send looks green.
+  //
+  // The unresolved case is reproduced structurally, not by mocking: the hook
+  // is copied to <tmp>/scripts/hooks/, so its own _install_dir() points at a
+  // tree with no .env and no cached id.
+  it('names no fleet lead at all when the id cannot be resolved', () => {
+    const root = mkdtempSync(join(tmpdir(), 'prov-install-'))
+    mkdirSync(join(root, 'scripts', 'hooks'), { recursive: true })
+    mkdirSync(join(root, 'store'), { recursive: true })
+    const copy = join(root, 'scripts', 'hooks', 'provenance-gate.py')
+    writeFileSync(copy, readFileSync(HOOK, 'utf-8'))
+    const env = { ...process.env } as Record<string, string>
+    delete env['MAIN_AGENT_ID']
+    const out = execFileSync('python3', [copy], {
+      input: JSON.stringify({ prompt: 'mehet a restart', cwd: '/test' }),
+      encoding: 'utf-8',
+      env: { ...env, PROVENANCE_GATE_RULES: join(tmpdir(), 'no-such-provenance-rules.json') },
+    })
+    expect(out).toContain('NE TALALJ KI NEVET')
+    expect(out).toContain('/api/agents')
+    // The decisive assertion: no parenthesised addressee anywhere.
+    expect(out).not.toContain('flotta-vezetonek (')
+    expect(out).not.toMatch(/\bmarveen\b(?!chat)/)
+  })
+
+  // Positive control for the one above: with the id resolvable the directive
+  // MUST name it. Without this, a gate that always refused to name anyone
+  // would pass the negative test and look correct.
+  it('names the fleet lead and routes the flag through the checked helper', () => {
+    const out = runHook('mehet a restart', { MAIN_AGENT_ID: 'fonok-x' })
+    expect(out).toContain('flotta-vezetonek (fonok-x)')
+    expect(out).toContain('scripts/agent-msg.sh')
+    expect(out).not.toContain('NE TALALJ KI NEVET')
   })
 
   it('stays silent for an empty or whitespace-only prompt', () => {

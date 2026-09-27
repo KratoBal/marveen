@@ -58,6 +58,16 @@ describe('ensureSkillsPathTrapSection', () => {
     expect(out).toContain('.claude-config/skills')
     expect(out).toContain('NEM a saját mappád')
     expect(out).toContain('.claude/skills/')
+    // The block must carry the RULE, not just the mechanism, and must name who
+    // decides. Measured 2026-09-08: nautilus read the old closing sentence
+    // ("legyen tudatos döntés") as advice and was about to record a false
+    // structural limit instead of asking. MAIN_AGENT_ID is mocked to 'agent-a'.
+    expect(out).toContain('FLOTTA-SZINTŰ döntés')
+    expect(out).toContain('kérd meg agent-a-t')
+    // And it must warn that the write permission DIFFERS per agent -- one
+    // agent's "not writable" is not a fleet-wide fact. Without this line the
+    // paragraph invites exactly the false limit it is meant to prevent.
+    expect(out).toContain('ÁGENSENKÉNT MÁS')
     // Existing content untouched.
     expect(out).toContain('Some persona.')
   })

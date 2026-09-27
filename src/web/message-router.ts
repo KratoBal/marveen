@@ -181,7 +181,26 @@ const agentStuckSince = new Map<string, number>()  // agent -> first tick stuck 
 // eventually, because a tool call CAN wedge with the spinner up, and a session
 // that has been busy for half an hour with mail queued behind it is worth a
 // look either way.
-const BUSY_STUCK_ESCALATE_MS = 30 * 60 * 1000  // busy pane: only after a much longer watchdog
+// MERVE 2026-09-17: a 30 perces hatar MEG MINDIG a normalis munkaritmuson
+// BELUL van, tehat ugyanaz a hiba all, egy iteracioval kesobb. Aznap a riasztas
+// TIZENOTSZOR szolt (14 nautilusrol, 1 murenarol), es MIND A TIZENOT hamis volt.
+// A kontroll-szam: nautilus 59 kimeno uzenetet irt aznap 00:01 es 19:10 kozott,
+// es a munkanapon beluli LEGHOSSZABB csendje 36 PERC volt. A 30 perces kuszob
+// tehat nem a beteg allapotot valasztja el az egeszsegestol, hanem kettevagja az
+// egeszsegeset -- es mivel a riasztas ablakonkent ujra elsul, ugyanaz a dolgozo
+// agens felorankent ujra jelentve lesz.
+//
+// A 90 perc a MERT eloszlas fole megy (36 perc a mert maximum), es aznap NULLA
+// riasztast adott volna. Nem talalgatas: ha egy agens fordulоi valaha
+// megnyulnak, ezt a szamot ujra kell merni, nem felfele kerekiteni.
+//
+// AMI EZZEL NEM OLDODIK MEG, es kulon kartyan all (94673021): a riasztas masodik
+// fele a "pending" uzenetek szamat is kiirja, az a mezo viszont EGYIK IRANYBAN
+// SEM bizonyit -- egy dolgozo agens valaszol olyan uzenetekre is, amik a soron
+// pendingkent allnak. A VALODI jel az lenne, hogy a panel KIMENETE valtozik-e
+// ket ellenorzes kozott; egy kuszob-emeles csak a zajt csokkenti, a feltetelt nem
+// javitja meg.
+const BUSY_STUCK_ESCALATE_MS = 90 * 60 * 1000  // busy pane: a mert fordulo-hossz fole (lasd fent)
 
 /**
  * Pure decision: may a continuously not-ready session escalate now?
@@ -258,6 +277,49 @@ let _tickRunning = false
 
 // Max messages drained per 5s tick; a larger backlog rolls to the next tick.
 export const MAX_MESSAGES_PER_TICK = 25
+
+/**
+ * Pick this tick's messages ROUND-ROBIN across receivers instead of globally
+ * oldest-first: one message for every receiver, then a second for every
+ * receiver, and so on until the budget runs out.
+ *
+ * WHY IT IS NOT A SORT: within one receiver the order stays oldest-first, so a
+ * single agent's messages still arrive in the order they were sent. What changes
+ * is that no receiver can consume the whole budget. A receiver whose pane is busy
+ * is skipped by the delivery loop, and under global ordering its backlog kept
+ * refilling the entire slice, so every other agent starved silently -- no error,
+ * no log line, just nothing delivered. (Measured live 2026-09-04: 27 of 34 pending
+ * messages belonged to one busy agent, and the slice was 100% that agent.)
+ *
+ * `pending` is expected oldest-first (that is what getPendingMessages returns);
+ * this preserves that within each receiver group.
+ */
+export function fairSliceByReceiver(pending: AgentMessage[], max: number): AgentMessage[] {
+  if (pending.length <= max) return pending.slice()
+  // Group preserving arrival order, and keep the groups in first-seen order so
+  // the agent with the oldest message still goes first in each round.
+  const groups = new Map<string, AgentMessage[]>()
+  for (const m of pending) {
+    const g = groups.get(m.to_agent)
+    if (g) g.push(m)
+    else groups.set(m.to_agent, [m])
+  }
+  const out: AgentMessage[] = []
+  const queues = Array.from(groups.values())
+  let round = 0
+  while (out.length < max) {
+    let took = false
+    for (const q of queues) {
+      if (round >= q.length) continue
+      out.push(q[round]!)
+      took = true
+      if (out.length === max) break
+    }
+    if (!took) break
+    round++
+  }
+  return out
+}
 // Federated (slash-qualified to_agent) messages get their own, smaller
 // per-tick budget: each attempt is an HTTPS round-trip with a 5s timeout
 // inside the serialized tick, so the cap bounds how long federation can hold
@@ -432,7 +494,17 @@ export async function runMessageRouterTick(): Promise<void> {
     // rest roll to the next 5s tick. Bounds a single tick's wall-time so a
     // backlog (e.g. after a delivery stall) can never make one tick run long
     // and starve the event loop -- the slow-tick half of the progressive-hang
-    // pattern. Ordering is preserved (oldest first) so nothing is starved.
+    // pattern.
+    //
+    // The slice is built ROUND-ROBIN ACROSS RECEIVERS, not globally oldest-first.
+    // Globally oldest-first is what this comment used to claim was starvation-free,
+    // and it is not: one receiver whose pane is busy accumulates the oldest messages,
+    // fills the whole budget, and every one of them is skipped with "busy, will
+    // retry" -- so no other agent is ever reached, tick after tick.
+    // Measured 2026-09-04, live: 34 pending, 27 of them for one busy agent; the
+    // 25-message slice was 100% that agent, and four ready agents with pending
+    // messages were never looked at for hours. Restarting the dashboard or the
+    // agents did not help, because the fault is the ORDER, not any stored state.
     //
     // Federated (slash-qualified) recipients are split out FIRST: they must
     // never reach the local path (agentSessionName / readAgentRemoteHost would
@@ -442,7 +514,7 @@ export async function runMessageRouterTick(): Promise<void> {
     const localPending: AgentMessage[] = []
     const federatedPending: AgentMessage[] = []
     for (const m of allPending) (isQualifiedId(m.to_agent) ? federatedPending : localPending).push(m)
-    const pending = localPending.slice(0, MAX_MESSAGES_PER_TICK)
+    const pending = fairSliceByReceiver(localPending, MAX_MESSAGES_PER_TICK)
     const now = Date.now()
     // ---- update absent/present tracking for all receivers in this tick ----
     // Rebuild the stuck-detector's view of which agents are absent RIGHT NOW.

@@ -64,8 +64,70 @@ index_skills_dir() {
       name=$(basename "$skill_dir")
     fi
 
+    # A csonkolás KARAKTER-alapú, nem bájt-alapú. A `cut -c1-120` bájtokat vág, ami egy
+    # magyar ékezetes karakter közepén elmetszi a több bájtos UTF-8 szekvenciát -- az
+    # index ettől érvénytelen UTF-8 lesz, a grep binárisnak látja, és a skill-keresés
+    # NÉMÁN nem talál semmit (mért eset 2026-08-16: az external-company-research sora
+    # törte el a fájlt). A python3 mindig elérhető, a `cut` viszont nem multibyte-helyes.
+    # A LEIRAS TOBB SOROS IS LEHET, es a `grep -m1 "^description:"` ezt NEMAN elrontja.
+    # Mert eset 2026-09-23 05:0x: a `description: >-` (YAML folded block) alaku skilleknel
+    # a grep az elso sort hozta, amin a szoveg helyett a `>-` jel all -- az indexbe
+    # harom skillnel szo szerint `>-` kerult leirasnak. Az index igy pont azt vesztette
+    # el, amiert letezik: a Level 0 leiras az EGYETLEN, ami akkor is hat, ha nem keresed.
+    # Ezert a kinyeres a teljes frontmattert olvassa, es a folytato sorokat osszefuzi.
+    #
+    # A hatar 120-rol 400-ra nott ugyanabban a korben, majd 2026-09-23 06:2x-kor
+    # TELJESEN ELTUNT. A tortenete azert all itt, mert a ket csonkolas UGYANAZT a sort
+    # vagta el, csak egyre kesobb, es mindketszer a MEGOLDAS eleve maradt kint:
+    #
+    #   120 karakter   a bash-hivas-alakja sora a "Contains simple_" szonal allt meg
+    #   400 karakter   ugyanaz a sor a "PR torzsben" szonal allt meg
+    #
+    # A masodik csonkolas ara MERT: 2026-09-23 ejjel barracuda tizennegyszer allt meg
+    # ugyanazon a parancs-alakon (ciklusvaltozo plusz $(...) egy for ciklusban), es a
+    # megoldas -- a `grep -o -F -f minta.txt CELFAJL | sort | uniq -c` egy-hivasos alak --
+    # pont a 400. karakter UTAN all a leirasban. Az indexe tehat megmondta neki, hogy VAN
+    # baja, es azt nem, hogy mi a kiut. Egy kivalto jel megoldas nelkul rosszabb a
+    # semminel: megallitja az olvasot, de nem inditja el.
+    #
+    # A TELJES leiras ara az EGESZ indexre 2492 karakter (20599 a 18107 helyett, 56
+    # skillnel, ebbol 9 volt 400 felett). Az index nem automatikusan betoltott fajl,
+    # keresre olvassak `cat`-tel, tehat ez a 12 szazalek nem terheli a kontextust minden
+    # korben -- a csonkolas viszont pont akkor tunt el, amikor szukseg lett volna ra.
+    # HA VALAHA UJRA HATART TENNEL IDE: eloszor mérd le, MELYIK skill sora hol vagodik el,
+    # es mi marad kint. Egy szamnak onmagaban nincs jelentese.
     local desc
-    desc=$(grep -m1 "^description:" "$skill_md" 2>/dev/null | sed 's/^description: *//' | tr -d '"' | tr -d "'" | cut -c1-120)
+    desc=$(python3 - "$skill_md" <<'PYDESC'
+import sys, re
+try:
+    txt = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+except Exception:
+    sys.exit(0)
+m = re.match(r'^---\n(.*?)\n---', txt, re.S)
+fm = m.group(1) if m else txt
+lines = fm.split('\n')
+out = []
+for i, line in enumerate(lines):
+    if not line.startswith('description:'):
+        continue
+    first = line[len('description:'):].strip()
+    if first in ('>-', '>', '|-', '|', '>+', '|+'):
+        for cont in lines[i+1:]:
+            if cont.strip() and not cont.startswith((' ', '\t')):
+                break
+            out.append(cont.strip())
+    else:
+        out.append(first)
+        for cont in lines[i+1:]:
+            if cont.strip() and not cont.startswith((' ', '\t')):
+                break
+            out.append(cont.strip())
+    break
+d = ' '.join(x for x in out if x)
+d = d.replace('"', '').replace("'", '').replace('|', '/')
+sys.stdout.write(' '.join(d.split()))
+PYDESC
+)
     if [ -z "$desc" ]; then
       desc="(nincs leírás)"
     fi

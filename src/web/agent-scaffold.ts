@@ -8,7 +8,8 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { findDuplicateJsonKeys } from './json-dup-keys.js'
 import { logger } from '../logger.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities } from './agent-config.js'
-import { resolveProfilePlaceholders, type ProfileTemplate } from './profiles.js'
+import { resolveProfilePlaceholders, loadProfileTemplate, type ProfileTemplate } from './profiles.js'
+import { resolveAgentSecurityProfile } from './agent-team.js'
 import { sanitizeCapabilityTag, CAPABILITY_TAG_MAX_PER_AGENT } from '../prompt-safety.js'
 
 // Resolve the base URL agents should use to reach the dashboard API.
@@ -400,9 +401,19 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
   // allow), so this is a fail-closed layer; the self-pace-gate hook below covers
   // the Bash escape routes a name-deny cannot reach. (2026-06-26 autonom-kor fix.)
   if (agentGetsGovernanceGates(name)) denyList.push(...SELF_PACE_TOOL_DENY)
+  // additionalDirectories moves the WORKING-DIRECTORY boundary, which the runtime
+  // checks SEPARATELY from allow/deny. Without it an allow rule for a path outside
+  // the agent's own directory is inert: the read still raises the out-of-workdir
+  // prompt. (Measured 2026-09-04: barracuda stalled on find, grep and Read against
+  // the shared tree while `Read(${HOME}/marveen/**)` was live in its settings.json.)
+  // deny is evaluated before the bypass allow, so the denied paths above -- store/
+  // and .channels-config/, which hold live secrets -- stay closed either way.
+  // Balázs approved this on 2026-09-04 (Discord, fleet thread, "Bemehet").
+  const extraDirs = (profile.filesystem.directories ?? []).map(p => resolveProfilePlaceholders(p, ctx))
   existing.permissions = {
     allow: profile.filesystem.allow.map(p => resolveProfilePlaceholders(p, ctx)),
     deny: denyList,
+    ...(extraDirs.length ? { additionalDirectories: extraDirs } : {}),
   }
   // Governance hard-gates: every sub-agent (NOT the main agent) gets PreToolUse
   // hooks. Re-applied on every spawn (this function regenerates settings.json),
@@ -423,6 +434,7 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
     injectDigestProvenanceGate(existing)
   }
   injectEgressGate(existing)
+  if (agentGetsReadonlyCommandGate(profile)) injectReadonlyCommandGate(existing)
   atomicWriteFileSync(settingsPath, JSON.stringify(existing, null, 2))
 }
 
@@ -622,6 +634,75 @@ export function ensureEgressGate(name: string): boolean {
   if (isUnsafeHookCommand(command)) return false
   injectEgressGate(settings)
   if (name !== MAIN_AGENT_ID) mkdirSync(join(agentDir(name), '.claude'), { recursive: true })
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return true
+}
+
+// The read-only-command gate: auto-allows a Bash call ONLY when every
+// segment's program is on the agent's OWN profile.filesystem.allow list
+// (grep, cat, head, tail, wc, sort, uniq, cut, sed -n, stat, file, md5sum,
+// tr, nl, pwd, echo, date, df, ps, a scoped find), no argument (after
+// resolving same-block NAME=value assignments) touches a deny-listed path
+// fragment, and there is no redirection, substitution or sed -i. Every
+// command it does not confidently recognise falls through to the normal
+// permission flow unchanged -- it only ever emits "allow", never "deny".
+// See scripts/hooks/readonly-command-gate.py's own module docstring for
+// the full contract and the reasoning (murena, kanban 66c161e0, 2026-09-23).
+//
+// MIERT NEM hookCommand(): az NODE binaris kore epit parancsot, ez a script
+// viszont PYTHON -- egy node-dal inditott .py 127-tel csendben elhalna.
+// A minta a provenance-gate.py / staleness-guard.py paroseval egyezik.
+const _readonlyCommandGateScript = join(PROJECT_ROOT, 'scripts', 'hooks', 'readonly-command-gate.py')
+const READONLY_COMMAND_GATE_CMD = `bash -c '[ -f ${_readonlyCommandGateScript} ] && exec python3 ${_readonlyCommandGateScript}; exit 0'`
+
+// Which agents get the gate: driven by the profile's OWN permissionMode,
+// never a hardcoded agent name (acrobot's explicit condition, 2026-09-23).
+// Only a STRICT profile can produce the "Contains simple_expansion" stall
+// this gate exists to relieve -- a permissive profile already runs with
+// --dangerously-skip-permissions, so the stall cannot occur there.
+export function agentGetsReadonlyCommandGate(profile: Pick<ProfileTemplate, 'permissionMode'>): boolean {
+  return profile.permissionMode === 'strict'
+}
+
+// Idempotently wire the read-only-command gate PreToolUse hook into a
+// settings.json object. Same merge shape as injectEgressGate.
+export function injectReadonlyCommandGate(existing: Record<string, unknown>): void {
+  const hooks = (existing.hooks && typeof existing.hooks === 'object'
+    ? existing.hooks
+    : (existing.hooks = {})) as Record<string, unknown>
+  // Registration guard: a /tmp or missing path must never enter shared settings.
+  if (isUnsafeHookCommand(READONLY_COMMAND_GATE_CMD)) return
+  const entry = {
+    matcher: 'Bash',
+    hooks: [{ type: 'command', command: READONLY_COMMAND_GATE_CMD, timeout: 10 }],
+  }
+  const prev = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : []
+  hooks.PreToolUse = [
+    ...prev.filter((e) => !JSON.stringify(e).includes('readonly-command-gate.py')),
+    entry,
+  ]
+}
+
+// Idempotent migration: ensure a STRICT-profile agent's settings.json carries
+// the read-only-command gate hook. MAIN_AGENT_ID is excluded before resolving
+// a profile at all: it is not profile-managed.
+export function ensureReadonlyCommandGate(name: string): boolean {
+  if (name === MAIN_AGENT_ID) return false
+  const profile = loadProfileTemplate(resolveAgentSecurityProfile(name))
+  if (!agentGetsReadonlyCommandGate(profile)) return false
+  const settingsPath = agentSettingsPath(name)
+  let settings: Record<string, unknown> = {}
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { return false }
+  }
+  const hooks = (settings.hooks && typeof settings.hooks === 'object')
+    ? settings.hooks as Record<string, unknown>
+    : {}
+  const ptu = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse as unknown[] : []
+  if (JSON.stringify(ptu).includes('readonly-command-gate.py')) return false
+  if (isUnsafeHookCommand(READONLY_COMMAND_GATE_CMD)) return false
+  injectReadonlyCommandGate(settings)
+  mkdirSync(join(agentDir(name), '.claude'), { recursive: true })
   atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
   return true
 }
@@ -1238,8 +1319,15 @@ function buildSkillsPathTrapBody(): string {
     '`~/.claude/skills`-re, tehát ami oda kerül, az a TELJES flottánál megjelenik',
     '-- akkor is, ha a skill-futtatás base directory-ja ezt az utat mutatja.',
     'A saját, csak neked szóló vagy kipróbálatlan külső skill a munkakönyvtárad',
-    '`.claude/skills/` mappájába megy. A globálisba írás tudatos, flotta-szintű',
-    'döntés legyen, ne alapértelmezés.',
+    '`.claude/skills/` mappájába megy.',
+    '',
+    `A globálisba írás FLOTTA-SZINTŰ döntés, nem alapértelmezés: kérd meg ${MAIN_AGENT_ID}-t,`,
+    'és mondd meg, MIT írnál és HOVÁ. Ez akkor is áll, ha a fa írhatónak bizonyul.',
+    '',
+    'ÉS A JOG ÁGENSENKÉNT MÁS, tehát a saját mérésedből NE vezess le flotta-szintű',
+    'korlátot (mérve 2026-09-08: a fő ágensnek írható, a saját felhasználó alatt futó',
+    'ágenseknek nem). Ha megállsz rajta, az NEM szerkezeti tiltás, hanem jogosultság --',
+    'de a fenti szabály miatt a feloldása akkor sem a te döntésed.',
   ].join('\n')
 }
 

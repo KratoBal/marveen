@@ -1,0 +1,7 @@
+marveen:x:1000:1000::/home/marveen:/bin/bash
+agent-korall:x:1001:1001::/home/agent-korall:/bin/bash
+agent-polip:x:1002:1001::/home/agent-polip:/bin/bash
+agent-barracuda:x:1003:1001::/home/agent-barracuda:/bin/bash
+agent-murena:x:1004:1001::/home/agent-murena:/bin/bash
+agent-nautilus:x:1005:1001::/home/agent-nautilus:/bin/bash
+agent-picasso:x:1006:1001::/home/agent-picasso:/bin/bash

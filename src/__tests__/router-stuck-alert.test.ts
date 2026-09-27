@@ -93,11 +93,20 @@ describe('shouldEscalateStuckSession: a busy pane is work, not a stall', () => {
     expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 10 * MIN + 30_000)).toBe(false)
   })
 
+  // MERVE 2026-09-17: a 30 perces hatar meg mindig a normalis munkaritmuson
+  // BELUL allt. Aznap 15 riasztas ment ki (14 nautilusrol, 1 murenarol), es MIND
+  // hamis volt. A kontroll: nautilus 59 kimeno uzenetet irt aznap, es a
+  // munkanapon beluli leghosszabb csendje 36 PERC volt -- vagyis a regi kuszob
+  // egy egeszsegesen dolgozo agenst vagott kette, felorankent ujra jelentve.
+  it('does NOT escalate the 2026-09-17 nautilus case (36 min busy, working fine)', () => {
+    expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 36 * MIN)).toBe(false)
+  })
+
   it('still escalates a busy pane once the long watchdog passes', () => {
-    // A tool call can wedge with the spinner up. Half an hour of busy with mail
-    // queued behind it is worth a look either way.
-    expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 31 * MIN)).toBe(true)
-    expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 29 * MIN)).toBe(false)
+    // A tool call CAN wedge with the spinner up, tehat a hatar nem tunhet el --
+    // csak a mert fordulo-hossz FOLE kerul (90 perc).
+    expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 91 * MIN)).toBe(true)
+    expect(shouldEscalateStuckSession(detectPaneState(BUSY_PANE), 89 * MIN)).toBe(false)
   })
 
   it('keeps the normal threshold for a pane that is not busy', () => {
