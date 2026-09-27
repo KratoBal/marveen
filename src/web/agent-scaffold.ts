@@ -5,6 +5,7 @@ import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, HEARTBEAT_AGENT_ID, BOT_NAME, 
 import { channelStateDir } from '../channel-provider.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { injectMeasureStatusLine } from './measure-statusline.js'
 import { findDuplicateJsonKeys } from './json-dup-keys.js'
 import { logger } from '../logger.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities } from './agent-config.js'
@@ -388,26 +389,9 @@ export function ensureAgentProvenanceHook(name: string): boolean {
 // run AS the agent's OS user -- that is the only identity that can read the 0600
 // transcripts -- and a statusLine command does exactly that. Owner approval for
 // this profile/settings change: Balazs, 2026-09-27 15:30 UTC (Discord, main
-// channel, message_id 1553791029549998101).
-//
-// Never overwrites a statusLine someone set on purpose: only a missing one, or
-// one that already points at the measurement script (so the command can be
-// upgraded in place). Fail-open wrapper like the hooks above: a missing script
-// prints nothing instead of an error in the agent's status bar.
-const _measureScript = join(PROJECT_ROOT, 'scripts', 'measure-statusline.py')
-export function measureStatusLineCommand(agent: string, exportUsage: boolean): string {
-  const flag = exportUsage ? ' --export-usage' : ''
-  return `bash -c '[ -f ${_measureScript} ] && MEASURE_AGENT=${agent} exec python3 ${_measureScript}${flag}; exit 0'`
-}
-
-export function injectMeasureStatusLine(settings: Record<string, unknown>, agent: string, exportUsage: boolean): boolean {
-  const cur = settings.statusLine as { command?: unknown } | undefined
-  if (cur && !(typeof cur.command === 'string' && cur.command.includes('measure-statusline.py'))) return false
-  const want = { type: 'command', command: measureStatusLineCommand(agent, exportUsage), padding: 0 }
-  if (cur && JSON.stringify(cur) === JSON.stringify(want)) return false
-  settings.statusLine = want
-  return true
-}
+// channel, message_id 1553791029549998101). The helpers live in
+// measure-statusline.ts so the worker provisioning installs the same line.
+export { measureStatusLineCommand, injectMeasureStatusLine } from './measure-statusline.js'
 
 export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemplate): void {
   const agentRoot = agentDir(name)

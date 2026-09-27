@@ -107,3 +107,50 @@ describe('measure-statusline.py --export-usage', () => {
     expect(statSync(join(mdir, 'quota-samples.jsonl')).mode & 0o777).toBe(0o664)
   })
 })
+
+// Worker provisioning: the measurement statusLine is part of ensureWorkerCwd,
+// so a fresh install / fresh worker gets it without a hand edit. Run in an
+// isolated HOME so nothing touches the live ~/.claude or worker dirs.
+describe('worker provisioning installs the measurement statusLine', () => {
+  const run = async (prep?: (settingsPath: string) => void) => {
+    const fakeHome = join(TMP, `home-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(fakeHome, '.claude'), { recursive: true })
+    const prevHome = process.env.HOME
+    process.env.HOME = fakeHome
+    try {
+      const { ensureWorkerCwd, makeWorkerCtx } = await import('../web/agent-worker.js')
+      const ctx = makeWorkerCtx('test-worker', join(fakeHome, `.${MAIN_AGENT_ID}-worker`))
+      const settingsPath = join(ctx.configDir, 'settings.json')
+      if (prep) { mkdirSync(ctx.configDir, { recursive: true }); prep(settingsPath) }
+      ensureWorkerCwd(ctx)
+      const first = readFileSync(settingsPath, 'utf-8')
+      ensureWorkerCwd(ctx)
+      const second = readFileSync(settingsPath, 'utf-8')
+      return { first: JSON.parse(first), idempotent: first === second }
+    } finally {
+      process.env.HOME = prevHome
+    }
+  }
+
+  it('a fresh worker config gets the sampler tagged <main>-worker, without --export-usage', async () => {
+    const { first, idempotent } = await run()
+    expect(first.statusLine).toEqual({ type: 'command', command: measureStatusLineCommand(`${MAIN_AGENT_ID}-worker`, false), padding: 0 })
+    expect(first.statusLine.command).not.toContain('--export-usage')
+    expect(first.statusLine.command).toContain('exit 0')          // fail-open
+    expect(first.skipDangerousModePermissionPrompt).toBe(true)     // existing provisioning kept
+    expect(idempotent).toBe(true)
+  })
+
+  it('keeps a statusLine someone set on purpose', async () => {
+    const own = { type: 'command', command: 'my-own-bar.sh' }
+    const { first } = await run((p) => writeFileSync(p, JSON.stringify({ statusLine: own })))
+    expect(first.statusLine).toEqual(own)
+  })
+
+  it('upgrades an older measurement statusLine in place (the hand-set one)', async () => {
+    const old = { type: 'command', command: 'python3 /x/scripts/measure-statusline.py' }
+    const { first } = await run((p) => writeFileSync(p, JSON.stringify({ statusLine: old, model: 'keep-me' })))
+    expect(first.statusLine.command).toBe(measureStatusLineCommand(`${MAIN_AGENT_ID}-worker`, false))
+    expect(first.model).toBe('keep-me')                            // no other key touched
+  })
+})

@@ -15,6 +15,7 @@ import {
   FLEET_OAUTH_TOKEN_PATH,
 } from './agent-process.js'
 import { withSessionSendLock } from './session-send-lock.js'
+import { injectMeasureStatusLine } from './measure-statusline.js'
 import { readClaudeCodeOauthJson } from './claude-credentials.js'
 import { detectPaneState } from '../pane-state.js'
 import { notifyChannel } from '../notify.js'
@@ -391,7 +392,13 @@ export function ensureWorkerCwd(ctx: WorkerCtx = ctxSlow): void {
   // skipDangerousModePermissionPrompt: suppress the "Bypass Permissions mode"
   // first-run warning so the headless worker (launched with
   // --dangerously-skip-permissions) reaches its prompt without a blocking modal.
-  writeFileSync(settingsPath, JSON.stringify({ ...current, enabledPlugins, skipDangerousModePermissionPrompt: true }, null, 2) + '\n')
+  const next: WorkerSettings = { ...current, enabledPlugins, skipDangerousModePermissionPrompt: true }
+  // Measurement Layer v1: the quota sampler, tagged <main>-worker for both the
+  // slow and the fast session (the token collector maps both dirs to that name).
+  // No --export-usage: the worker runs as the dashboard's user, so the
+  // collector reads its transcripts directly. A foreign statusLine is kept.
+  injectMeasureStatusLine(next, `${MAIN_AGENT_ID}-worker`, false)
+  writeFileSync(settingsPath, JSON.stringify(next, null, 2) + '\n')
 
   // Subscription auth: materialise the host login JSON as .credentials.json AND
   // clear the stale path-hashed Keychain entry that would shadow it (see the

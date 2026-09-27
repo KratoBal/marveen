@@ -85,8 +85,9 @@ describe('deriveRuns', () => {
     expect(r.model).toBe('claude-opus-5-5')
     expect(r.provider).toBe('anthropic')
     expect(r.runtime).toBe('claude-code')
-    expect(r.auth_mode).toBe('subscription')
-    expect(r.actual_incremental_cost_usd).toBe(0)
+    expect(r.auth_mode).toBeNull()                 // no explicit auth evidence -> null, not a default
+    expect(r.billing_mode).toBeNull()
+    expect(r.actual_incremental_cost_usd).toBeNull()
     expect(r.duration_seconds).toBe(3600)
     expect(r.status).toBe('done')
     expect(r.api_calls).toBe(2)
@@ -143,14 +144,37 @@ describe('deriveRuns', () => {
     expect(t.success).toBe('SUCCESS')
   })
 
-  it('marks an api-mode agent as api billing, with unknown incremental cost', () => {
-    const db = freshDb()
-    db.prepare("INSERT INTO kanban_cards VALUES ('c5','x','done','x',NULL)").run()
-    db.prepare("INSERT INTO kanban_card_events (card_id, from_status, to_status, created_at) VALUES ('c5','planned','in_progress',10),('c5','in_progress','done',20)").run()
-    deriveRuns(db, { now: 100, authModes: { x: 'api' } })
-    const [r] = listRuns(db) as any[]
-    expect(r.auth_mode).toBe('api')
-    expect(r.actual_incremental_cost_usd).toBeNull()
+  describe('auth_mode: null over guesses', () => {
+    const run = (authModes: Record<string, any> | undefined) => {
+      const db = freshDb()
+      db.prepare("INSERT INTO kanban_cards VALUES ('c5','x','done','x',NULL)").run()
+      db.prepare("INSERT INTO kanban_card_events (card_id, from_status, to_status, created_at) VALUES ('c5','planned','in_progress',10),('c5','in_progress','done',20)").run()
+      deriveRuns(db, { now: 100, authModes })
+      return (listRuns(db) as any[])[0]
+    }
+
+    it('A) explicit subscription -> subscription billing, zero incremental cost', () => {
+      const r = run({ x: 'subscription' })
+      expect(r.auth_mode).toBe('subscription')
+      expect(r.billing_mode).toBe('subscription')
+      expect(r.actual_incremental_cost_usd).toBe(0)
+    })
+
+    it('B) explicit api -> api billing, unknown incremental cost', () => {
+      const r = run({ x: 'api' })
+      expect(r.auth_mode).toBe('api')
+      expect(r.billing_mode).toBe('api')
+      expect(r.actual_incremental_cost_usd).toBeNull()
+    })
+
+    it('C) unknown or missing auth -> all three null', () => {
+      for (const modes of [undefined, {}, { x: null }, { x: 'shared' }, { other: 'subscription' }]) {
+        const r = run(modes)
+        expect(r.auth_mode).toBeNull()
+        expect(r.billing_mode).toBeNull()
+        expect(r.actual_incremental_cost_usd).toBeNull()
+      }
+    })
   })
 })
 

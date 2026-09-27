@@ -36,7 +36,7 @@ export const FIELD_PROVENANCE: Record<string, FieldProvenance> = {
   model: 'derived',              // most frequent model among the window's calls
   provider: 'derived',           // from model prefix
   runtime: 'exact',              // every fleet agent is claude-code today
-  auth_mode: 'exact',            // agent-config authMode; fleet default subscription
+  auth_mode: 'exact',            // explicit launch-path credential; null when absent or mixed (measurement-auth.ts)
   started_at: 'exact',
   finished_at: 'exact',
   duration_seconds: 'exact',
@@ -222,8 +222,11 @@ export function providerOf(model: string | null): string | null {
 
 export interface DeriveOptions {
   prices?: PriceFile | null
-  /** agent -> authMode from agent-config.json; missing means the fleet default. */
-  authModes?: Record<string, string | undefined>
+  /**
+   * agent -> auth mode resolved from explicit launch configuration
+   * (measurement-auth.ts). A missing or null entry stays null: no default.
+   */
+  authModes?: Record<string, 'subscription' | 'api' | null | undefined>
   now?: number   // epoch seconds, for tests
 }
 
@@ -311,7 +314,9 @@ export function deriveRuns(db: Database.Database, opts: DeriveOptions = {}): num
       const qb = (quotaAt.get(w.start) as { seven_day_pct: number } | undefined)?.seven_day_pct ?? null
       const qa = w.end === null ? null
         : (quotaAt.get(w.end) as { seven_day_pct: number } | undefined)?.seven_day_pct ?? null
-      const authMode = agent ? (opts.authModes?.[agent] === 'api' ? 'api' : 'subscription') : null
+      // Null over guesses: only an explicitly resolved mode is written.
+      const resolved = agent ? opts.authModes?.[agent] : undefined
+      const authMode = resolved === 'subscription' || resolved === 'api' ? resolved : null
       upsert.run({
         run_id: `${w.card}:${w.start}`,
         task_id: w.card,

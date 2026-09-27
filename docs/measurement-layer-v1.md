@@ -81,7 +81,7 @@ Served with every read response as `provenance`.
 |---|---|---|
 | task_id, run_id, started_at, finished_at, duration, status | exact | from card events |
 | runtime | exact | every fleet agent is claude-code today |
-| auth_mode, billing_mode | exact | agent-config `authMode`; default subscription |
+| auth_mode, billing_mode | exact or null | explicit launch configuration only (see 4a); no evidence -> null, never a default |
 | success, reviewer | exact | only set explicitly via the outcome endpoint |
 | agent | derived | card assignee at derivation time |
 | model, provider | derived | most frequent model among the window's calls |
@@ -90,6 +90,32 @@ Served with every read response as `provenance`.
 | api_equivalent_cost_usd | derived | only if `store/measurements/prices.json` exists with a named source; otherwise null |
 | turns, retries, subagent_runs, parent_run_id | unavailable | no reliable signal; no heuristic in v1 by design |
 | git_*, pull_request, tests_passed, ci_status | unavailable | not linked in v1 (see 9.) |
+
+### 4a. Where auth_mode comes from
+
+Null over guesses (`src/web/measurement-auth.ts`). A run gets an auth mode only
+when the agent's launch path explicitly wires exactly ONE kind of credential into
+its session, read from the same inputs the launcher reads:
+
+| Agent | Launcher | subscription when | api when |
+|---|---|---|---|
+| main | `scripts/channels.sh` | `.env CLAUDE_CODE_OAUTH_TOKEN` or `store/.claude-oauth-token`, and no `.env ANTHROPIC_API_KEY`, and `.env MAIN_AGENT_MODEL` is a Claude model | `.env ANTHROPIC_API_KEY` and no setup-token |
+| `<main>-worker` | `agent-worker.ts` | `store/.claude-oauth-token` present, no `.env ANTHROPIC_API_KEY`, Claude worker model | never alone (it has no key of its own) |
+| sub-agent | `agent-process.ts` | agent-config has an EXPLICIT `authMode` of `shared`/`own_team`, the fleet token is present, no shared API key | explicit `authMode: api` AND the vault holds `agent-<name>-api-key` |
+
+Everything else is **null** for auth_mode, billing_mode and
+actual_incremental_cost_usd: no `authMode` key in agent-config (the launcher's
+`shared` default is a default, not evidence), both credentials wired at once, a
+non-Claude model, a remote host, an own `claudeConfigDir` or `claudePlan` login.
+Not evidence either: that no API key was found, that a Claude model runs, that
+the agent name is known. The API guard (`scripts/api-guard.py`) stays a
+separate safety signal: its "no API configuration found" is not a subscription
+proof.
+
+Measured on 2026-09-27 against the live configuration: main, worker and
+nautilus resolve to subscription; barracuda, korall, murena, picasso and polip
+resolve to null, because their agent-config carries no `authMode` key. Making
+them explicit is a config edit, and deliberately not part of this change.
 
 Rules: zero calls in a window is stored as **null**, not 0 (the collector may
 be blind to that agent). A quota difference across a reset is **null**, not
@@ -144,9 +170,10 @@ sampler writes no path, session id or prompt text.
    read CI from GitHub. v2.
 3. Prices: no price file ships; `api_equivalent_cost_usd` stays null until one
    with a named source is added.
-4. The worker's statusLine lives in `~/<main>-worker/.claude-config/settings.json`,
-   which no provisioning code writes: it was set by hand at activation and
-   is not reproduced by a fresh install.
+4. Auth mode is read from launch configuration, not observed at runtime. The
+   statusLine's `rate_limits` block (present only for subscription sessions)
+   would be runtime proof, but the quota log is throttled across the whole
+   fleet, so most agents have no sample of their own to prove it with.
 5. A sub-agent that is not running exports nothing; its transcripts are
    picked up (backfilled) the first time its statusLine runs after a start.
 6. The quota log is one shared account: a sample says how full the account
@@ -178,9 +205,15 @@ or API setting was changed.
 **Quota sampling.** `statusLine` = `scripts/measure-statusline.py` with
 `MEASURE_AGENT=<name>`, wrapped fail-open (a missing script prints nothing).
 Main agent: in its isolated config `settings.json` (a target-only key, kept
-by the provisioning merge). Worker: in `~/<main>-worker/.claude-config/settings.json`
-with `MEASURE_AGENT=<main>-worker`, no export (its transcripts are readable). Claude Code re-reads the setting in a running
-session: the first sample landed within seconds, no restart.
+by the provisioning merge). Worker (slow and fast session): written by the
+worker provisioning itself, `ensureWorkerCwd()` in `src/web/agent-worker.ts`,
+which runs before every worker start, with `MEASURE_AGENT=<main>-worker` and no
+export (its transcripts are readable). It is idempotent, keeps any statusLine
+someone set on purpose, upgrades an older measurement line in place, and uses
+the same fail-open wrapper as the sub-agents (`src/web/measure-statusline.ts`,
+shared by both). A fresh install or a newly created worker gets it with no hand
+edit. Claude Code re-reads the setting in a running session: the first sample
+landed within seconds, no restart.
 
 **Worker.** `token-usage.ts` scans `~/.claude/projects` AND
 `~/<main>-worker/.claude-config/projects` (deduped by realpath; today the

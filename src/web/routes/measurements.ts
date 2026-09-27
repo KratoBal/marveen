@@ -13,9 +13,13 @@
 
 import { join } from 'node:path'
 import { getDb } from '../../db.js'
-import { STORE_DIR } from '../../config.js'
+import { STORE_DIR, MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../../config.js'
+import { readEnvFile } from '../../env.js'
 import { json, readBody } from '../http-helpers.js'
-import { listAgentNames, readAgentAuthMode } from '../agent-config.js'
+import { agentDir, listAgentNames, readAgentModel } from '../agent-config.js'
+import { hasFleetOauthToken } from '../agent-process.js'
+import { getSecret } from '../vault.js'
+import { agentConfigPath, readJsonObject, resolveAuthModes } from '../measurement-auth.js'
 import {
   FIELD_PROVENANCE, SUCCESS_VALUES, deriveRuns, ingestQuotaSamples, listQuotaSamples,
   listRuns, listTasks, loadPriceFile, setRunOutcome, type SuccessValue,
@@ -29,10 +33,20 @@ export const PRICES_PATH = join(MEASUREMENTS_DIR, 'prices.json')
 /** Ingest + derive. Called by the periodic collector and by POST /refresh. */
 export function refreshMeasurements(): { quotaInserted: number; runs: number } {
   const db = getDb()
-  const authModes: Record<string, string | undefined> = {}
-  for (const n of listAgentNames()) {
-    try { authModes[n] = readAgentAuthMode(n) } catch { /* default */ }
-  }
+  // Explicit launch configuration only; anything unreadable resolves to null.
+  let authModes: Record<string, 'subscription' | 'api' | null> = {}
+  try {
+    authModes = resolveAuthModes({
+      mainAgentId: MAIN_AGENT_ID,
+      env: readEnvFile(['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'MAIN_AGENT_MODEL']),
+      fleetTokenPresent: hasFleetOauthToken(),
+      workerModel: process.env.MARVEEN_WORKER_MODEL || DEFAULT_AGENT_MODEL || null,
+      subAgents: listAgentNames(),
+      subAgentConfig: (n) => readJsonObject(agentConfigPath(agentDir(n))),
+      subAgentModel: (n) => { try { return readAgentModel(n) } catch { return null } },
+      vaultApiKey: (n) => { try { return !!getSecret(`agent-${n}-api-key`) } catch { return false } },
+    })
+  } catch { /* every run keeps auth_mode null */ }
   const quotaInserted = ingestQuotaSamples(db, QUOTA_SAMPLES_PATH)
   const runs = deriveRuns(db, { prices: loadPriceFile(PRICES_PATH), authModes })
   return { quotaInserted, runs }
