@@ -714,7 +714,8 @@ def _record(channel: str, verdict: str, problems=(), text: str = "") -> None:
                 os.path.abspath(__file__))), "jev"))
             import shadow
             shadow.submit({"task": "outgoing", "message": text,
-                           "local": {"verdict": verdict, "kinds": row.get("kinds", []),
+                           "local": {"verdict": verdict,
+                                     "kinds": [k.split()[0][:40] for k in row.get("kinds", []) if k.split()],
                                      "channel": channel}})
         except Exception:  # noqa: BLE001
             pass
@@ -742,6 +743,14 @@ def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:
                 fh.write(warn)
         except OSError:
             pass
+        sys.exit(0)
+    if "--observe" in sys.argv:
+        # OBSERVE MODE (2026-09-28): the Discord branch (GATEDISCORD820) was
+        # written but never registered in .claude/settings.json, so Discord
+        # replies were never gated. Wired here as observe-only: record what the
+        # gate WOULD do, feed the D-005 shadow, never block. Turning it into an
+        # enforcing gate is the owner's decision, made on these numbers.
+        _record(channel, "would-deny" if problems else "allow", problems, text)
         sys.exit(0)
     _record(channel, "deny" if problems else "allow", problems, text)
     if problems:

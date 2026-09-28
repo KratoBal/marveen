@@ -133,6 +133,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_discord_discord__reply",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/outgoing-copy-gate.py\" --observe",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "Stop": [
