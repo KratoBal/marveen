@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ledger_lib  # noqa: E402
 
 GRACE_SECONDS = 60
+PEEK = "--peek" in sys.argv[1:]
 
 
 def _statefile(agent_id):
@@ -94,6 +95,13 @@ def main():
             f'és írasd át (voice-message-transcribe skill, '
             f'attachment_file_id="{att_file_id}") mielőtt válaszolsz.]'
         )
+    if PEEK:
+        # --peek (the scheduler preCheck, D-004): report only WHETHER a wake is
+        # needed, and leave the dedup marker alone -- the woken session runs the
+        # plain drain, which surfaces and records it. Recording here would lose
+        # the question whenever the wake itself is skipped (skipIfBusy).
+        sys.stdout.write("WAKE\n")
+        sys.exit(0)
     sys.stdout.write(f"OPEN_QUESTION chat_id={chat_id} message_id={message_id}\n{snippet}\n")
     _record_surfaced(path, message_id)
     sys.exit(0)
