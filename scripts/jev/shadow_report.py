@@ -34,7 +34,14 @@ DEFAULT_STORE = "/home/marveen/marveen/store"
 TASKS = ("memory", "outgoing")
 OUTCOMES = ("provider_called", "disabled", "blocked_leak_gate", "blocked_redaction_error",
             "blocked_runtime_guard", "blocked_timeout", "blocked_too_long",
-            "blocked_not_redacted", "bad_task", "error_before_call")
+            "blocked_not_redacted", "bad_task", "error_before_call", "batch_invalid")
+# batch_invalid (P-016 / ACD-013): the call happened, but its answers are
+# unusable as a whole. It counts for calls, latency and tokens, never for
+# agreement.
+BATCH_DETAILS = ("shape", "missing", "extra")
+REASONS = ("SAME_SUBJECT", "SHARED_WORDS", "OTHER_SUBJECT", "TOO_LITTLE_TEXT")
+POLICY_V2 = "d005-shadow-v2"
+COSTED = ("provider_called", "batch_invalid")
 STORES = ("emlek", "naplo", "kartya", "komment", "csatorna", "eszkoz")
 DIRECTIONS = ("in", "out")
 VERDICTS = ("allow", "deny", "would-deny")
@@ -133,6 +140,8 @@ def shadow_rows(path, since):
                     k2 = pick(k, PLACEHOLDERS)
                     ph[k2] = ph.get(k2, 0) + n
         kinds = local.get("kinds") if isinstance(local.get("kinds"), list) else []
+        det = d.get("detail") if d.get("outcome") == "batch_invalid" and isinstance(d.get("detail"), str) else ""
+        reason = d["answers"].get("reason") if isinstance(d.get("answers"), dict) else None
         out.append({
             "ts": ts,
             "task": pick(d.get("task"), TASKS),
@@ -152,6 +161,8 @@ def shadow_rows(path, since):
             "verdict": pick(local.get("verdict"), VERDICTS),
             "kinds": sorted({pick(k, KINDS) for k in kinds}),
             "channel": pick(local.get("channel"), CHANNELS),
+            "batch_details": sorted({pick(x, BATCH_DETAILS) for x in det.split(",") if x}),
+            "reason": pick(reason, REASONS) if reason is not None else None,
         })
     return out, bad
 
@@ -235,16 +246,21 @@ def analyse(shadow, decisions, recall, cold_ms, match_window, idle_s=300):
         ts = [r["ts"] for r in shadow]
         rep["window"] = [iso(min(ts)), iso(max(ts))]
     rep["by_task"] = {}
-    for task in TASKS + (OTHER, MISSING):
-        rows = [r for r in shadow if r["task"] == task]
+    # v1 (one call per hit) and v2 (one call per message, P-016) are separate
+    # sections: quality is comparable, the latency and call baselines are not.
+    def group(r):
+        return "memory_v2" if r["task"] == "memory" and r["policy"] == POLICY_V2 else r["task"]
+    for task in ("memory", "memory_v2", "outgoing", OTHER, MISSING):
+        rows = [r for r in shadow if group(r) == task]
         if not rows:
             continue
         outcomes = dist(r["outcome"] for r in rows)
         active = [r for r in rows if r["outcome"] != "disabled"]
         blocked = [r for r in active if r["outcome"].startswith("blocked_")]
         called = [r for r in rows if r["outcome"] == "provider_called"]
-        cold = [r for r in called if r["latency"] is not None and r["latency"] >= cold_ms]
-        warm = [r for r in called if r["latency"] is not None and r["latency"] < cold_ms]
+        costed = [r for r in rows if r["outcome"] in COSTED]
+        cold = [r for r in costed if r["latency"] is not None and r["latency"] >= cold_ms]
+        warm = [r for r in costed if r["latency"] is not None and r["latency"] < cold_ms]
         ph_tot = {}
         for r in called:
             for k, v in r["placeholders"].items():
@@ -256,7 +272,10 @@ def analyse(shadow, decisions, recall, cold_ms, match_window, idle_s=300):
             # P-016 (d005-shadow-v2): one call writes one row per candidate and
             # carries latency/tokens on the first row only -- so a call is a row
             # with a latency. Under v1 every row is its own call.
-            "calls": sum(1 for r in called if r["latency"] is not None),
+            "calls": sum(1 for r in costed if r["latency"] is not None),
+            "batch_invalid": sum(1 for r in rows if r["outcome"] == "batch_invalid"),
+            "batch_invalid_details": dist(x for r in rows if r["outcome"] == "batch_invalid"
+                                          for x in r["batch_details"]),
             "blocked_share_of_active": (round(len(blocked) / len(active), 4) if active else None),
             "errors": sum(1 for r in rows if r["outcome"] == "error_before_call"),
             "redaction_versions": dist(r["redaction"] for r in rows),
@@ -266,18 +285,27 @@ def analyse(shadow, decisions, recall, cold_ms, match_window, idle_s=300):
             "placeholders_per_call": (round(sum(ph_tot.values()) / len(called), 2) if called else None),
             "calls_without_placeholder": sum(1 for r in called if not r["placeholders"]),
             "latency_warm": stats([r["latency"] for r in warm]),
-            "latency_all": stats([r["latency"] for r in called]),
+            "latency_all": stats([r["latency"] for r in costed]),
             "cold_calls": [{"time": iso(r["ts"]), "ms": r["latency"]} for r in sorted(cold, key=lambda r: r["ts"])][:20],
             "cold_count": len(cold),
-            "tokens": stats([r["tokens"] for r in called]),
+            "tokens": stats([r["tokens"] for r in costed]),
         }
-        if task == "memory":
+        if task in ("memory", "memory_v2"):
             t["agreement"] = memory_agreement(called, recall, match_window)
         if task == "outgoing":
             t["agreement"] = outgoing_agreement(called)
             t["coverage"] = coverage(rows, decisions, match_window)
         rep["by_task"][task] = t
-    rep["timing"] = timing([r for r in shadow if r["outcome"] == "provider_called"], cold_ms, idle_s)
+    # Timing per PERIOD: the v2 period starts with the first v2 row. Both tasks
+    # share the provider, so each period holds every call made in it.
+    costed_all = [r for r in shadow if r["outcome"] in COSTED]
+    v2_start = min((r["ts"] for r in shadow if r["policy"] == POLICY_V2), default=None)
+    if v2_start is None:
+        rep["timing"] = timing(costed_all, cold_ms, idle_s)
+    else:
+        rep["timing"] = timing([r for r in costed_all if r["ts"] < v2_start], cold_ms, idle_s)
+        rep["timing_v2"] = timing([r for r in costed_all if r["ts"] >= v2_start], cold_ms, idle_s)
+        rep["v2_start"] = iso(v2_start)
     rep["recall_log"] = recall_summary(recall)
     return rep
 
@@ -322,6 +350,9 @@ def memory_agreement(called, recall, window):
                      if any(r["store"] == s for r in called)},
         "by_rank": by_rank,
         "brake": brake,
+        "reason_by_choice": [{"jev": k[0], "reason": k[1], "n": v} for k, v in sorted(dist(
+            (r["answers"]["rel"][0], r["reason"]) for r in called
+            if "rel" in r["answers"] and r["reason"] is not None).items())],
     }
 
 
@@ -525,17 +556,51 @@ def _d(d):
     return ", ".join(f"{k} {v}" for k, v in d.items()) or "–"
 
 
+def _timing_md(tm, suffix):
+    if not tm or not tm["calls"]:
+        return []
+    L = []
+    g = tm["grid"]
+
+    def c(x):
+        return f"{x['cold']}/{x['n']} ({_pct(x['cold'], x['n'])})" if x["n"] else "–"
+    L += ["## Miért lassú egy hívás: alvás, egyidejűség vagy egyik sem" + suffix, "",
+          f"Mindkét feladat hívásai együtt ({tm['calls']}), mert ugyanazt a szolgáltatót terhelik. "
+          f"Hosszú szünet: legalább {tm['idle_threshold_s']} s az előző hívás vége óta (vagy az első hívás). "
+          "Csomag: ugyanabban a másodpercben több indult, vagy induláskor másik hívás még futott. "
+          "Átfedés: egy korábbi másodpercben indult hívás még futott (negatív szünet, külön sáv). "
+          "Felbontás: 1 s.", "",
+          "| hideg / összes | egyedül | csomagban |", "|---|---|---|",
+          f"| hosszú szünet után | {c(g['hosszú_szünet_egyedül'])} | {c(g['hosszú_szünet_csomagban'])} |",
+          f"| rövid szünet után | {c(g['rövid_szünet_egyedül'])} | {c(g['rövid_szünet_csomagban'])} |", "",
+          "Olvasat: ha csak a hosszú szünet sora hideg, a szolgáltató alszik el (ritka ébresztő hívás). "
+          "Ha csak a csomag oszlopa, az egyidejűség (sorba állítás vagy kisebb párhuzamosság). "
+          "Ha a rövid szünet utáni egyedüli hívás is gyakran hideg, egyik sem: a kapcsolatnyitást kell nézni. "
+          "A hosszú szünet utáni csomag cellája egyedül nem dönt.", "",
+          "- tétlen idő szerint: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_idle"].items()),
+          "- ugyanabban a másodpercben indult: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_same_second"].items()),
+          "- induláskor futó hívások (magával együtt): " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_in_flight"].items()),
+          "- hideg hívások: " + ("; ".join(
+              f"{x['time']} {x['task']} {x['ms']} ms, {_idle_text(x)}, "
+              f"egy másodpercben {x['same_second']}, futó {x['in_flight']}" for x in tm["cold_calls"]) or "nincs"), ""]
+    return L
+
+
 def markdown(rep, meta):
     L = ["# D-005 shadow kiértékelés", "",
          f"- olvasva: shadow {meta['shadow']}, döntésnapló {meta['decisions']}, recall-napló {meta['recall']}",
          f"- időablak: {' – '.join(rep['window']) if rep.get('window') else 'nincs sor'}"
          f"; sorok: {rep['rows']}, hibás sor: {meta['bad_shadow']}",
          f"- hidegindulás küszöbe: {meta['cold_ms']} ms; párosítási ablak: ±{meta['window']} s", ""]
+    titles = {"memory": "memory (v1: találatonként egy hívás)",
+              "memory_v2": "memory (v2: üzenetenként egy hívás, P-016)", "outgoing": "outgoing"}
     for task, t in rep["by_task"].items():
-        L += [f"## {task}", "",
+        L += [f"## {titles.get(task, task)}", "",
               f"- kimenetel: {_d(t['outcomes'])}",
               f"- szolgáltatóhoz ment: {t['provider_called']} sor, {t['calls']} hívás; blokk-arány a nem kikapcsolt sorokon: "
               f"{_share(t['blocked_share_of_active'])}; hiba a hívás előtt vagy közben: {t['errors']}",
+              f"- érvénytelen köteg (batch_invalid, egyezésbe nem számít): {t['batch_invalid']} sor"
+              + (f" ({_d(t['batch_invalid_details'])})" if t["batch_invalid"] else ""),
               f"- kitakaró-verzió: {_d(t['redaction_versions'])}; modell: {_d(t['models'])}; policy: {_d(t['policies'])}",
               f"- helyőrzők összesen: {_d(t['placeholders_total'])}; hívásonként {t['placeholders_per_call']}; helyőrző nélküli hívás: {t['calls_without_placeholder']}",
               f"- késleltetés (meleg, < küszöb): {_st(t['latency_warm'], ' ms')}",
@@ -545,7 +610,7 @@ def markdown(rep, meta):
               f"- bemeneti token: {_st(t['tokens'])}"
               + (f", összesen {t['tokens']['sum']}" if t["tokens"].get("n") else ""), ""]
         a = t.get("agreement")
-        if task == "memory" and a:
+        if task in ("memory", "memory_v2") and a:
             L += ["### Egyezés: Jev `rel` kontra a flotta (megjelent-e a találat)", "",
                   "| Jev | helyi | db |", "|---|---|---|"]
             L += [f"| {x['jev']} | {x['local']} | {x['n']} |" for x in a["table"]]
@@ -556,7 +621,11 @@ def markdown(rep, meta):
                   f"- tároló szerint: " + (", ".join(f"{k} {_rate(v)}" for k, v in a["by_store"].items()) or "–"),
                   f"- rang szerint: " + ", ".join(f"{k} {_rate(v)}" for k, v in a["by_rank"].items()),
                   f"- kimenő fék (recall-napló, párosítva {b['matched']}, párosítatlan {b['unmatched']}): "
-                  f"fékezett futásban {_rate(b['brake_on'])}, fék nélkül {_rate(b['brake_off'])}", ""]
+                  f"fékezett futásban {_rate(b['brake_on'])}, fék nélkül {_rate(b['brake_off'])}"]
+            if a["reason_by_choice"]:
+                L.append("- indokkód a választás mellett: "
+                         + ", ".join(f"{x['jev']} / {x['reason']}: {x['n']}" for x in a["reason_by_choice"]))
+            L.append("")
         if task == "outgoing" and a:
             L += ["### Egyezés: Jev kérdések kontra a kapu ítélete", ""]
             for q, rows in a["per_question_vs_verdict"].items():
@@ -569,31 +638,12 @@ def markdown(rep, meta):
                 L.append(f"- lefedettség: a csatorna-döntésekből {c['with_shadow_row']}/{c['chat_decisions']} kapott shadow-sort"
                          f" ({c['without_shadow_row']} nem); a döntések ítélete: {_d(c['decision_verdicts'])}")
             L.append("")
-    tm = rep.get("timing")
-    if tm and tm["calls"]:
-        g = tm["grid"]
-
-        def c(x):
-            return f"{x['cold']}/{x['n']} ({_pct(x['cold'], x['n'])})" if x["n"] else "–"
-        L += ["## Miért lassú egy hívás: alvás, egyidejűség vagy egyik sem", "",
-              f"Mindkét feladat hívásai együtt ({tm['calls']}), mert ugyanazt a szolgáltatót terhelik. "
-              f"Hosszú szünet: legalább {tm['idle_threshold_s']} s az előző hívás vége óta (vagy az első hívás). "
-              "Csomag: ugyanabban a másodpercben több indult, vagy induláskor másik hívás még futott. "
-              "Átfedés: egy korábbi másodpercben indult hívás még futott (negatív szünet, külön sáv). "
-              "Felbontás: 1 s.", "",
-              "| hideg / összes | egyedül | csomagban |", "|---|---|---|",
-              f"| hosszú szünet után | {c(g['hosszú_szünet_egyedül'])} | {c(g['hosszú_szünet_csomagban'])} |",
-              f"| rövid szünet után | {c(g['rövid_szünet_egyedül'])} | {c(g['rövid_szünet_csomagban'])} |", "",
-              "Olvasat: ha csak a hosszú szünet sora hideg, a szolgáltató alszik el (ritka ébresztő hívás). "
-              "Ha csak a csomag oszlopa, az egyidejűség (sorba állítás vagy kisebb párhuzamosság). "
-              "Ha a rövid szünet utáni egyedüli hívás is gyakran hideg, egyik sem: a kapcsolatnyitást kell nézni. "
-              "A hosszú szünet utáni csomag cellája egyedül nem dönt.", "",
-              "- tétlen idő szerint: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_idle"].items()),
-              "- ugyanabban a másodpercben indult: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_same_second"].items()),
-              "- induláskor futó hívások (magával együtt): " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_in_flight"].items()),
-              "- hideg hívások: " + ("; ".join(
-                  f"{x['time']} {x['task']} {x['ms']} ms, {_idle_text(x)}, "
-                  f"egy másodpercben {x['same_second']}, futó {x['in_flight']}" for x in tm["cold_calls"]) or "nincs"), ""]
+    periods = [("timing", "")]
+    if rep.get("timing_v2"):
+        periods = [("timing", f" (v1 időszak, {rep['v2_start']} előtt)"),
+                   ("timing_v2", f" (v2 időszak, {rep['v2_start']} óta)")]
+    for key, suffix in periods:
+        L += _timing_md(rep.get(key), suffix)
     rs = rep.get("recall_log")
     if rs:
         L += ["## Recall-napló (az új, 6 oszlopos sorok)", ""]

@@ -286,12 +286,18 @@ class NoTextEverLeaves(unittest.TestCase):
         evil["policy"] = s[0]
         evil["placeholders"] = {s[1]: 3, "DATE": 1}
         evil["outcome"] = s[2]
+        evil_v2 = mem(T0 + 4, "RELEVANT", True)
+        evil_v2.update(policy="d005-shadow-v2", outcome="batch_invalid", detail=s[0] + ",missing")
+        evil_v2["answers"]["reason"] = s[4]
+        evil_v3 = mem(T0 + 5, "RELEVANT", True)
+        evil_v3.update(policy="d005-shadow-v2")
+        evil_v3["answers"]["reason"] = s[1]
         evil2 = out(T0 + 1, verdict=s[0], kinds=[s[7], "HALASZTAS"], channel=s[2])
         evil2["message"] = s[0]
         decisions = [{"ts": T0 + 1, "channel": s[1], "verdict": s[0], "kinds": [s[7]], "len": 5,
                       "sha256": s[9], "cwd": s[10]}]
         recall = [(T0 + 2, s[8], 8, 1500, "out", 1)]
-        st = Store([evil, evil2, mem(T0 + 3, "RELEVANT", True)], decisions=decisions, recall=recall,
+        st = Store([evil, evil2, mem(T0 + 3, "RELEVANT", True), evil_v2, evil_v3], decisions=decisions, recall=recall,
                    extra_shadow_lines=['{"nem": "zart', "Kovacs Bela szabad szovege"])
         code, md = st.run()
         self.assertEqual(code, 0)

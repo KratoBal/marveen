@@ -26,6 +26,7 @@ local verdict (the fleet's own decision, for comparison). Never text.
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -45,6 +46,10 @@ KEY_FILE = os.path.join(STORE, ".jev-api-key")
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-1.13.0"   # pinned; old versions stop answering (memory 1883)
 POLICY = "d005-shadow-v1"
+# P-016 (prototype, not wired): one call per recall message instead of one per
+# hit. A different prompt shape is a different policy, so reports can split.
+POLICY_BATCH = "d005-shadow-v2"
+MAX_BATCH = 11   # the hook sends the shown rows (<= 8) plus up to 3 below the cut
 TIMEOUT = 60   # first real hour: 22 of 58 calls over 9 s, max 29.5 s, clustered 8 at a time
 JOB_SECONDS = 75   # redaction plus call; past this the measurement is dropped
 MAX_CANDIDATE_CHARS = 1500
@@ -101,12 +106,16 @@ def _salt():
         return salt
 
 
+def _input_hash(fields):
+    return hashlib.blake2b(json.dumps(fields, sort_keys=True, ensure_ascii=False).encode(),
+                           key=_salt(), digest_size=8).hexdigest()
+
+
 def _redacted_dto(fields, limits):
     """Redacts each field in full and cuts the REDACTED text to its limit:
     a cut before redaction can split an email or a name so that no pattern
     recognises the remaining half."""
-    raw_hash = hashlib.blake2b(json.dumps(fields, sort_keys=True, ensure_ascii=False).encode(),
-                               key=_salt(), digest_size=8).hexdigest()
+    raw_hash = _input_hash(fields)
     out, counts = {}, {}
     for name, value in fields.items():
         if len(value) > MAX_REDACT_CHARS:
@@ -124,6 +133,25 @@ def _redacted_dto(fields, limits):
         for k, v in r["counts"].items():
             counts[k] = counts.get(k, 0) + v
     return RedactedDTO(out, redact.REDACTION_VERSION, counts, raw_hash)
+
+
+def _combined_dto(query_dto, candidate_dtos):
+    """P-016: ONE provider request out of pieces that were each redacted and
+    guarded on their own (the leak gate is measured per piece). It accepts
+    only RedactedDTOs, re-runs the runtime guard on every piece it puts in,
+    and never sees raw text. The result is still a RedactedDTO, so
+    _call_provider's own check stays the last word."""
+    parts = [query_dto] + list(candidate_dtos)
+    if any(not isinstance(d, RedactedDTO) or d.version != redact.REDACTION_VERSION for d in parts):
+        raise Blocked("blocked_not_redacted")
+    fields = {"query": query_dto.fields["query"]}
+    for i, d in enumerate(candidate_dtos):
+        fields["c%d" % i] = d.fields["candidate"]
+    for name, text in fields.items():
+        problems = redact.runtime_guard({"text": text, "version": redact.REDACTION_VERSION})
+        if problems:
+            raise Blocked("blocked_runtime_guard", ",".join(problems))
+    return RedactedDTO(fields, redact.REDACTION_VERSION, {}, "")
 
 
 # ------------------------------------------------------------ provider
@@ -236,6 +264,193 @@ def run_job(job):
     return row
 
 
+# ACD-013 point 2: an optional, CLOSED reason code per candidate. It is asked
+# as a second choice question, so the provider can only answer with one of
+# these keys -- never free text, which the log may not hold.
+REASON_CODES = {
+    "SAME_SUBJECT": "The note is about the same subject as the query.",
+    "SHARED_WORDS": "The note only shares words or names with the query.",
+    "OTHER_SUBJECT": "The note is about a different subject.",
+    "TOO_LITTLE_TEXT": "There is too little text to tell.",
+}
+WITH_REASON = False   # off by default: it doubles the questions per call
+
+
+def memory_batch_questions(n, with_reason=None):
+    """One 'rel' question per candidate field c0..c(n-1), same wording and
+    criteria as MEMORY_Q (RELEVANT / NOT_RELEVANT / UNCERTAIN), so the answers
+    stay comparable with v1; optionally one closed 'why' question each."""
+    with_reason = WITH_REASON if with_reason is None else with_reason
+    base = MEMORY_Q["rel"]
+    q = {}
+    for i in range(n):
+        q["rel_%d" % i] = {
+            "type": "choice",
+            "instructions": ("An assistant is about to answer 'query'. 'c%d' is one stored note "
+                             "from its memory. Would reading this note change or inform the answer?" % i),
+            "criteria": dict(base["criteria"])}
+        if with_reason:
+            q["why_%d" % i] = {
+                "type": "choice",
+                "instructions": "Which best describes how 'c%d' relates to 'query'?" % i,
+                "criteria": dict(REASON_CODES)}
+    return q
+
+
+def _valid_choice(v, allowed):
+    if not isinstance(v, dict) or v.get("choice") not in allowed:
+        return None
+    c = v.get("confidence", 0)
+    if isinstance(c, bool) or not isinstance(c, (int, float)):
+        return None
+    return {"choice": v.get("choice"), "confidence": round(float(c), 4)}
+
+
+_BATCH_DETAILS = ("shape", "missing", "extra")
+
+
+def _check_batch(answers, asked):
+    """ACD-013 point 1: the batch is valid only as a WHOLE. Any missing key,
+    any unrequested key, or any answer of the wrong shape makes every row of
+    the call unusable. Returns (parsed, problems); problems is a subset of
+    _BATCH_DETAILS, never text from the response."""
+    problems = set()
+    if not isinstance(answers, dict):
+        return {}, {"shape"}
+    parsed = {}
+    for key, allowed in asked.items():
+        if key not in answers:
+            problems.add("missing")
+            continue
+        a = _valid_choice(answers[key], allowed)
+        if a is None:
+            problems.add("shape")
+        else:
+            parsed[key] = a
+    if any(k not in asked for k in answers):
+        problems.add("extra")
+    return parsed, problems
+
+
+_shuffle = random.SystemRandom().shuffle
+
+
+def run_batch(job):
+    """P-016 / ACD-013: one provider call for all candidates of one recall
+    message.
+
+    Log shape is the SAME as for single memory jobs -- one row per candidate,
+    task "memory" -- so the report reads it, with these additions:
+      policy       d005-shadow-v2 (different prompt shape; reports keep v1 apart)
+      call_id      random hex shared by the rows of one call (no text)
+      batch_size / batch_index   (batch_index = position in the INPUT)
+    latency_ms, input_tokens and model sit on the FIRST called row only, so
+    one call is not read as N calls and N times the tokens.
+
+    CANDIDATE KEYS c0..cN ARE OPAQUE: the candidates go into the call in a
+    RANDOM order, so a key carries neither rank nor store (ACD-013 point 3;
+    in rank order c0 would always be the best-ranked hit). The answers are
+    mapped back by key.
+
+    Each candidate is redacted and guarded on its own; one that fails is
+    logged with its own outcome and left out of the call. The ANSWERS are
+    valid only as a whole (ACD-013 point 1): a missing key, an extra key or a
+    malformed answer marks every called row batch_invalid, without answers."""
+    query = str(job.get("query", ""))
+    cands = job.get("candidates") if isinstance(job.get("candidates"), list) else []
+    cands = cands[:MAX_BATCH]
+    ts = int(time.time())
+    rows = [{"ts": ts, "task": "memory", "policy": POLICY_BATCH,
+             "redaction_version": redact.REDACTION_VERSION,
+             "local": _safe_local(c.get("local") if isinstance(c, dict) else None),
+             "batch_size": len(cands), "batch_index": i} for i, c in enumerate(cands)]
+
+    def finish(outcome, detail="", only=None):
+        for i, row in enumerate(rows):
+            if (only is None or i in only) and "outcome" not in row:
+                row["outcome"] = outcome
+                if detail:
+                    row["detail"] = detail[:120]
+        for row in rows:
+            _log(row)
+        return rows
+
+    if not rows:
+        return rows
+    if not _enabled():
+        return finish("disabled")
+    if not _gate_green():
+        return finish("blocked_leak_gate")
+    try:
+        qdto = _redacted_dto({"query": query}, {"query": MAX_MESSAGE_CHARS})
+    except Blocked as b:
+        return finish(b.outcome, b.detail)
+    ok = []   # (row index, candidate dto)
+    for i, c in enumerate(cands):
+        text = str(c.get("candidate", "")) if isinstance(c, dict) else ""
+        try:
+            d = _redacted_dto({"candidate": text}, {"candidate": MAX_CANDIDATE_CHARS})
+        except Blocked as b:
+            rows[i]["outcome"] = b.outcome
+            if b.detail:
+                rows[i]["detail"] = b.detail[:120]
+            continue
+        rows[i]["input_hash"] = _input_hash({"query": query, "candidate": text})
+        counts = dict(qdto.counts)
+        for k, v in d.counts.items():
+            counts[k] = counts.get(k, 0) + v
+        rows[i]["placeholders"] = counts
+        ok.append((i, d))
+    if not ok:
+        return finish("blocked_redaction_error")
+    _shuffle(ok)   # the key cK no longer follows the input (= rank) order
+    try:
+        dto = _combined_dto(qdto, [d for _, d in ok])
+    except Blocked as b:
+        return finish(b.outcome, b.detail, only={i for i, _ in ok})
+    call_id = os.urandom(6).hex()
+    for i, _ in ok:
+        rows[i]["outcome"] = "provider_called"
+        rows[i]["call_id"] = call_id
+    first = rows[min(i for i, _ in ok)]
+    with_reason = WITH_REASON
+    try:
+        r, ms = _call_provider(dto, memory_batch_questions(len(ok), with_reason))
+    except Blocked as b:
+        for i, _ in ok:
+            rows[i]["outcome"] = b.outcome
+        return finish(b.outcome)
+    except (urllib.error.URLError, OSError, ValueError, KeyError, TimeoutError) as e:
+        err = type(e).__name__ + (f":{e.code}" if hasattr(e, "code") else "")
+        for i, _ in ok:
+            rows[i]["error"] = err
+        return finish("provider_called")
+    first.update(model=r.get("model"), latency_ms=ms,
+                 input_tokens=(r.get("usage") or {}).get("input_tokens"))
+    asked = {}
+    for k in range(len(ok)):
+        asked["rel_%d" % k] = MEMORY_Q["rel"]["criteria"]
+        if with_reason:
+            asked["why_%d" % k] = REASON_CODES
+    parsed, problems = _check_batch(r.get("answers"), asked)
+    if problems:
+        detail = ",".join(p for p in _BATCH_DETAILS if p in problems)
+        for i, _ in ok:
+            rows[i]["outcome"] = "batch_invalid"
+            rows[i]["detail"] = detail
+        return finish("batch_invalid")
+    for k, (i, _) in enumerate(ok):
+        rows[i]["answers"] = {"rel": parsed["rel_%d" % k]}
+        if with_reason:
+            rows[i]["answers"]["reason"] = parsed["why_%d" % k]["choice"]
+    return finish("provider_called")
+
+
+def submit_batch(query, candidates):
+    """For the recall hook under P-016: one detached child per message."""
+    submit({"task": "memory_batch", "query": query, "candidates": candidates})
+
+
 def _log(row):
     try:
         fd = os.open(LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
@@ -289,12 +504,23 @@ if __name__ == "__main__":
         job = json.loads(sys.stdin.read())
 
         def _timeout(*_):
-            _log({"ts": int(time.time()), "task": job.get("task"), "policy": POLICY,
-                  "redaction_version": redact.REDACTION_VERSION, "outcome": "blocked_timeout"})
+            if job.get("task") == "memory_batch":
+                cands = (job.get("candidates") or [])[:MAX_BATCH]
+                for i, c in enumerate(cands):
+                    _log({"ts": int(time.time()), "task": "memory", "policy": POLICY_BATCH,
+                          "redaction_version": redact.REDACTION_VERSION, "outcome": "blocked_timeout",
+                          "local": _safe_local(c.get("local") if isinstance(c, dict) else None),
+                          "batch_size": len(cands), "batch_index": i})
+            else:
+                _log({"ts": int(time.time()), "task": job.get("task"), "policy": POLICY,
+                      "redaction_version": redact.REDACTION_VERSION, "outcome": "blocked_timeout"})
             os._exit(0)
         signal.signal(signal.SIGALRM, _timeout)
         signal.alarm(JOB_SECONDS)
-        run_job(job)
+        if job.get("task") == "memory_batch":
+            run_batch(job)
+        else:
+            run_job(job)
     elif "--report" in sys.argv:
         print(json.dumps(report(), ensure_ascii=False, indent=1))
     else:

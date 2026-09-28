@@ -460,12 +460,15 @@ def _jev_shadow(prompt, rows, ranked, outgoing):
         # the shown rows plus up to three that ranked below the cut, so the
         # comparison covers both sides of our own choice
         cands = list(rows) + [r for r in ranked if id(r) not in shown][:3]
-        for rank, r in enumerate(cands):
-            score, label, text, _ = r
-            shadow.submit({"task": "memory", "query": prompt, "candidate": text or "",
-                           "local": {"score": score, "store": label.split()[0], "rank": rank,
-                                     "shown": id(r) in shown,
-                                     "direction": "out" if outgoing else "in"}})
+        # P-016 (ACD-013, 2026-09-28): ONE provider call per message with every
+        # candidate, not one per hit; per-hit fan-out made up to 11 concurrent
+        # calls and the slow tail. Each candidate still gets its own verdict.
+        shadow.submit_batch(prompt, [
+            {"candidate": text or "",
+             "local": {"score": score, "store": label.split()[0], "rank": rank,
+                       "shown": id(r) in shown, "direction": "out" if outgoing else "in"}}
+            for rank, r in enumerate(cands)
+            for score, label, text, _ in [r]])
     except Exception:  # noqa: BLE001 -- a measurement must never touch the hook
         pass
 
