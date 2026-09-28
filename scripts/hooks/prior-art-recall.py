@@ -484,6 +484,7 @@ def collect(words, tok, agent):
 _CHANNEL_RX = re.compile(
     r'<channel\s+source="plugin:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+"([^>]*)>(.*?)</channel>', re.DOTALL)
 _PEER_RX = re.compile(r"msg_id:(\d{1,20})")
+_PEER_BODY_RX = re.compile(r'<(?:trusted-peer|untrusted)\s+source="[^"]*">(.*?)</(?:trusted-peer|untrusted)>', re.DOTALL)
 
 
 def _attr(attrs, name):
@@ -603,6 +604,12 @@ def main():
     # text only; a reply too short to key on ("Mehet", "2") gets no recall at all.
     if not outgoing:
         inner = [m.group(2).strip() for m in _CHANNEL_RX.finditer(prompt)]
+        # The same for an agent message (nautilus, 2026-09-28): the "[Uzenet @x-tol -- trusted
+        # team member, msg_id:N]" wrapper and the "--- a kuldes mert ideje ..." footer took the
+        # keyword slots ("acrobot, trusted, szkript, uzenet, member, msg_id").
+        if not inner:
+            inner = [re.split(r"\n\s*--- a kuldes mert ideje", m.group(1), maxsplit=1)[0].strip()
+                     for m in _PEER_BODY_RX.finditer(prompt)]
         if inner:
             prompt = "\n".join(t for t in inner if t)
             if len(prompt) < MIN_PROMPT_LEN:
