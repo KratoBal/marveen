@@ -28,7 +28,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r9"
+REDACTION_VERSION = "r10"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -155,6 +155,8 @@ _add("PHONE", r"(?<![\d)])\(\d{1,2}\)\s*\d{3}[-\s]?\d{3,4}(?!\d)")
 _add("ID", _NB + r"\d{2,4}(?:[ .]\d{2,4}){2,}" + _NA)
 
 _add("ID", r"\bc[a-z0-9]{24}\b")                      # cuid record ids
+# prefixed ULIDs (Medusa sc_, prod_, variant_...): the underscore defeats \b (barracuda r9 read, 2026-09-28)
+_add("ID", r"(?<![\w-])[a-z]{2,12}_[0-9A-Za-z]{16,}(?![\w-])")
 _add("ID", r"\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z][a-z0-9]*[a-z])[a-z0-9]{20,}\b")   # coolify-style ids
 _add("ID", r"\b(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]{1,5}(?:-[A-Z0-9]{1,6}){1,4}\b")
 _add("ID", r"\b[A-Z0-9]{2,4}/[A-Z0-9]{2,4}(?:/[A-Z0-9]{2,4})?\b")
@@ -170,8 +172,11 @@ _add("ID", _NB + r"\d{5,}" + _NA)
 _add("ID", r"(?i)\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 _add("ID", r"(?i)(?<![^\W\d_])(?:rendelés|rendeles|számla|szamla|ticket|hibajegy|munkalap|megrendelés|megrendeles|order|invoice|eszköz|eszkoz|asset|leltári szám|leltari szam|sorozatszám|sorozatszam|serial)(?:szám|szam)?(?:\s+száma|\s+szama)?\s*[:#]?\s*(?P<v>(?=\S*\d)[A-Za-z0-9/-]{4,})")
 
-_add("AMOUNT", r"(?i)(?<![\w])(?:\d{1,3}(?:[ .  ]\d{3})+|\d+)(?:[.,]\d+)?(?:,-)?\s*(?:e|ezer|k|m|millió|millio|milliárd|milliard)?\.?\s*(?:Ft|HUF|forint|EUR|euró|euro|€|USD|dollár|dollar|\$)(?!\w)")
+_add("AMOUNT", r"(?i)(?<![\w])(?:\d{1,3}(?:[ .  ]\d{3})+|\d+)(?:[.,]\d+)?(?:,-)?\s*(?:e|ezer|k|m|millió|millio|milliárd|milliard)?\.?\s*(?:Ft|HUF|forint|EUR|euró|euro|€|USD|dollár|dollar|\$)(?:-?[^\W\d_]+)?(?!\w)")
 _add("AMOUNT", r"(?<![\d.,])\d{1,3}(?:\.\d{3})+(?:,\d+)?(?!\d|\.\d)")   # 22.500: Hungarian thousands
+# currency-less prices (barracuda r9 read, 2026-09-28): "30 ezer", "13 800" with a (narrow) no-break space
+_add("AMOUNT", r"(?i)(?<![\w.,])\d+(?:[.,]\d+)?\s*(?:ezer|millió|millio|milliárd|milliard)(?:[^\W\d_]*)(?![\w])")
+_add("AMOUNT", r"(?<![\d.,])\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?![\d])")
 _add("AMOUNT", r"(?i)(?:€|\$|EUR|USD|HUF)\s?\d[\d ., ]*\d")
 
 _MONTHS = r"(?:január|február|március|április|május|június|július|augusztus|szeptember|október|november|december|januar|februar|marcius|aprilis|majus|junius|julius|oktober|jan|febr|márc|marc|ápr|apr|máj|maj|jún|jun|júl|jul|aug|szept|okt|nov|dec)\.?"

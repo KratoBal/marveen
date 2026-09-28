@@ -1,5 +1,5 @@
 {
- "suite_version": "hu-leak-v4",
+ "suite_version": "hu-leak-v5",
  "note": "Hand-written, fictional data only (no real person, account or address). A case passes when NONE of its leak strings survives in the redacted text, compared after folding (case, accents, homoglyphs). 'keep' strings are the semantics we want preserved; they are reported, not gated. v1: 50 cases by acrobot; b1-: 45 and b2-: 50 cases written blind by separate agents that never saw the redactor, 2026-09-28; b3-: 28 cases from barracuda's read-only review of r1; b4-: 50 cases written blind by a third agent, scored untuned first (8 of 50 leaked on r2). Reviewed by acrobot 2026-09-28; any edit bumps suite_version. v4: +10 cases from nautilus and barracuda reading 200 real texts on r5 (fictional analogues).",
  "cases": [
   {
@@ -2697,6 +2697,50 @@
    ],
    "keep": [
     "torolve"
+   ]
+  },
+  {
+   "id": "r10-medusa-sc",
+   "text": "az eles bolt csatornaja sc_01M1M83JB5PB0Y0P3R7SRP6A6B, a tesztee sc_01M0JZ32ZDKGS33AWVVSVQPZX7",
+   "leak": [
+    "sc_01M1M83JB5PB0Y0P3R7SRP6A6B",
+    "sc_01M0JZ32ZDKGS33AWVVSVQPZX7"
+   ],
+   "keep": [
+    "csatornaja"
+   ]
+  },
+  {
+   "id": "r10-competitor",
+   "text": "Korallgarazs=olcsobb, a Korallgarázs kinalata szukebb",
+   "leak": [
+    "Korallgarazs",
+    "Korallgarázs"
+   ],
+   "keep": [
+    "olcsobb"
+   ]
+  },
+  {
+   "id": "r10-inflected-ft",
+   "text": "ezt 800 forintnak adjuk, a masikat 1200 Ft-ert",
+   "leak": [
+    "800",
+    "1200"
+   ],
+   "keep": [
+    "adjuk"
+   ]
+  },
+  {
+   "id": "r10-bare-price",
+   "text": "a 13 800 helyett 30 ezer felett ingyenes a szallitas",
+   "leak": [
+    "13 800",
+    "30 ezer"
+   ],
+   "keep": [
+    "ingyenes"
    ]
   }
  ]

@@ -105,7 +105,9 @@ EXTRA = [("HANDLE", "KratoBal"),
          # partners named in chat by a nickname no database row carries
          ("ORG", "FANK"), ("ORG", "Állatkert"), ("ORG", "Fővárosi Állatkert"),
          # third-party businesses nautilus and barracuda found by name, 2026-09-28
-         ("ORG", "INNONEST"), ("ORG", "TROPUS")]
+         ("ORG", "INNONEST"), ("ORG", "TROPUS"),
+         # competitor named in a memory, barracuda r9 read 2026-09-28
+         ("ORG", "Korallgarazs"), ("ORG", "Korallgarázs")]
 
 
 def main():
