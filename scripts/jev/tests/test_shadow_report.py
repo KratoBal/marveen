@@ -267,6 +267,69 @@ class WhyACallWasSlow(unittest.TestCase):
         self.assertEqual(t["by_same_second"], {"1": {"n": 1, "cold": 0}})
 
 
+CH, MS, CARD = "1538522302277353505", "1554108767648489543", "0b7e0c1e-7c1e-4c1e-9c1e-0c1e0c1e0c1e"
+QH, CHASH = "0123456789abcdef", "fedcba9876543210"
+
+
+def p017(ts, shown, store, *, ref="1861", q=None, ref_card=None, ref_chat=None, qh=QH, ch=CHASH,
+         choice="RELEVANT", outcome="provider_called"):
+    r = mem(ts, choice, shown, store=store, outcome=outcome)
+    r["policy"] = "d005-shadow-v2"
+    r["local"].update({"ref": ref, **(q if q is not None else {"q_kind": "channel", "q_chat": CH, "q_msg": MS})})
+    if ref_card:
+        r["local"]["ref_card"] = ref_card
+    if ref_chat:
+        r["local"]["ref_chat"] = ref_chat
+    if qh:
+        r["query_hash"] = qh
+    if ch:
+        r["cand_hash"] = ch
+    return r
+
+
+class P017Frame(unittest.TestCase):
+    def test_labelable_needs_both_ways_back(self):
+        L = sr.labelable
+        ch = {"q_kind": "channel", "q_chat": CH, "q_msg": MS}
+        self.assertTrue(L("emlek", {"ref": "1861", **ch}, None, CHASH))
+        self.assertFalse(L("emlek", {"ref": "1861", **ch}, None, None))                  # no candidate hash
+        self.assertFalse(L("emlek", {"ref": "Kovacs Bela", **ch}, None, CHASH))          # not an id
+        self.assertFalse(L("komment", {"ref": "12", **ch}, None, CHASH))                 # comment needs its card
+        self.assertTrue(L("komment", {"ref": "12", "ref_card": CARD, **ch}, None, CHASH))
+        self.assertFalse(L("csatorna", {"ref": MS, **ch}, None, CHASH))                  # channel needs its chat
+        self.assertTrue(L("csatorna", {"ref": MS, "ref_chat": CH, **ch}, None, CHASH))
+        self.assertFalse(L("emlek", {"ref": "1", "q_kind": "reply", "q_chat": CH}, None, CHASH))   # reply needs the hash
+        self.assertTrue(L("emlek", {"ref": "1", "q_kind": "reply", "q_chat": CH}, QH, CHASH))
+        self.assertTrue(L("emlek", {"ref": "1", "q_kind": "peer", "q_msg": "24189"}, None, CHASH))
+        self.assertFalse(L("emlek", {"ref": "1", "q_kind": "other"}, QH, CHASH))
+        self.assertFalse(L("emlek", {"ref": "1", "q_kind": "channel", "q_chat": CH}, None, CHASH))
+
+    def test_strata_cells_and_labelable_counts(self):
+        rows = [p017(T0, True, "emlek"), p017(T0 + 1, True, "emlek", ch=None),
+                p017(T0 + 2, False, "csatorna", ref=MS, ref_chat=CH, choice="NOT_RELEVANT"),
+                p017(T0 + 3, False, "komment", ref="12"),                             # no ref_card: not labelable
+                p017(T0 + 4, True, "kartya", ref=CARD, outcome="batch_invalid")]         # invalid batch: not in the frame
+        st = Store(rows).report()["by_task"]["memory_v2"]["agreement"]["strata"]
+        cells = {(c["layer"], c["store"]): (c["n"], c["jev_relevant"], c["labelable"]) for c in st["cells"]}
+        self.assertEqual(cells, {("SHOWN", "emlek"): (2, 2, 1), ("HIDDEN", "csatorna"): (1, 0, 1),
+                                 ("HIDDEN", "komment"): (1, 1, 0)})
+        self.assertEqual((st["labelable_total"], st["rows"]), (2, 4))
+        self.assertEqual(st["query_kinds"], {"channel": 4})
+
+    def test_ids_and_hashes_never_reach_the_output(self):
+        st = Store([p017(T0, True, "komment", ref="c1a2b3", ref_card=CARD),
+                    p017(T0 + 1, False, "csatorna", ref=MS, ref_chat=CH)])
+        _, md = st.run()
+        outdir = tempfile.mkdtemp()
+        st.run("--out", outdir)
+        with open(os.path.join(outdir, "shadow-report.json"), encoding="utf-8") as f:
+            js = f.read()
+        for text in (md, js):
+            for v in (CH, MS, CARD, "c1a2b3", QH, CHASH):
+                self.assertNotIn(v, text)
+        self.assertIn("Címkézhető (a kérdés és a jelölt visszakereshető): 2/2", md)
+
+
 class NoTextEverLeaves(unittest.TestCase):
     """The hard rule. Text is planted in every field a careless hook could
     fill, and in the two neighbouring logs; none of it may reach the output."""

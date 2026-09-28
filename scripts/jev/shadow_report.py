@@ -42,6 +42,38 @@ BATCH_DETAILS = ("shape", "missing", "extra")
 REASONS = ("SAME_SUBJECT", "SHARED_WORDS", "OTHER_SUBJECT", "TOO_LITTLE_TEXT")
 POLICY_V2 = "d005-shadow-v2"
 COSTED = ("provider_called", "batch_invalid")
+Q_KINDS = ("channel", "reply", "peer", "other")
+
+
+def _is_id(v):
+    """Presence test only: the value itself never reaches the output."""
+    return isinstance(v, str) and 0 < len(v) <= 40 and all(c.isalnum() or c in "_.:-" for c in v)
+
+
+def _is_hash(v):
+    return isinstance(v, str) and len(v) == 16 and all(c in "0123456789abcdef" for c in v)
+
+
+def labelable(store, local, query_hash, cand_hash):
+    """P-017: can a blind reader get this row's query and candidate back?
+    Candidate: a store id (a comment also needs its card, a channel message
+    its channel) and the candidate hash to check the text is unchanged.
+    Query: a channel message by (chat, message), a reply by chat + the exact
+    text hash, a peer message by msg_id. 'other' has no way back."""
+    if store not in STORES or not _is_id(local.get("ref")) or not _is_hash(cand_hash):
+        return False
+    if store == "komment" and not _is_id(local.get("ref_card")):
+        return False
+    if store == "csatorna" and not _is_id(local.get("ref_chat")):
+        return False
+    q = local.get("q_kind")
+    if q == "channel":
+        return _is_id(local.get("q_chat")) and _is_id(local.get("q_msg"))
+    if q == "reply":
+        return _is_id(local.get("q_chat")) and _is_hash(query_hash)
+    if q == "peer":
+        return _is_id(local.get("q_msg"))
+    return False
 STORES = ("emlek", "naplo", "kartya", "komment", "csatorna", "eszkoz")
 DIRECTIONS = ("in", "out")
 VERDICTS = ("allow", "deny", "would-deny")
@@ -162,6 +194,8 @@ def shadow_rows(path, since):
             "kinds": sorted({pick(k, KINDS) for k in kinds}),
             "channel": pick(local.get("channel"), CHANNELS),
             "batch_details": sorted({pick(x, BATCH_DETAILS) for x in det.split(",") if x}),
+            "q_kind": pick(local.get("q_kind"), Q_KINDS) if "q_kind" in local else None,
+            "labelable": labelable(local.get("store"), local, d.get("query_hash"), d.get("cand_hash")),
             "reason": pick(reason, REASONS) if reason is not None else None,
         })
     return out, bad
@@ -350,10 +384,29 @@ def memory_agreement(called, recall, window):
                      if any(r["store"] == s for r in called)},
         "by_rank": by_rank,
         "brake": brake,
+        "strata": strata(called),
         "reason_by_choice": [{"jev": k[0], "reason": k[1], "n": v} for k, v in sorted(dist(
             (r["answers"]["rel"][0], r["reason"]) for r in called
             if "rel" in r["answers"] and r["reason"] is not None).items())],
     }
+
+
+def strata(called):
+    """P-017 sampling frame: SHOWN/HIDDEN x store. Only valid, answered rows
+    count (a batch_invalid row is not in `called`). `labelable` says how many
+    of them a blind reader could get back (see labelable())."""
+    cells = []
+    for shown, name in ((True, "SHOWN"), (False, "HIDDEN")):
+        for store in STORES + (OTHER, MISSING):
+            sel = [r for r in called if r["shown"] is shown and r["store"] == store]
+            if not sel:
+                continue
+            cells.append({"layer": name, "store": store, "n": len(sel),
+                          "jev_relevant": sum(1 for r in sel if r["answers"].get("rel", (None,))[0] == "RELEVANT"),
+                          "labelable": sum(1 for r in sel if r["labelable"])})
+    q = dist(r["q_kind"] for r in called if r["q_kind"] is not None)
+    return {"cells": cells, "query_kinds": q,
+            "labelable_total": sum(1 for r in called if r["labelable"]), "rows": len(called)}
 
 
 def outgoing_agreement(called):
@@ -622,6 +675,14 @@ def markdown(rep, meta):
                   f"- rang szerint: " + ", ".join(f"{k} {_rate(v)}" for k, v in a["by_rank"].items()),
                   f"- kimenő fék (recall-napló, párosítva {b['matched']}, párosítatlan {b['unmatched']}): "
                   f"fékezett futásban {_rate(b['brake_on'])}, fék nélkül {_rate(b['brake_off'])}"]
+            st = a["strata"]
+            L += ["", "#### P-017 mintavételi keret (SHOWN/HIDDEN × tároló)", "",
+                  f"Címkézhető (a kérdés és a jelölt visszakereshető): {st['labelable_total']}/{st['rows']}"
+                  + (f"; kérdés-fajták: {_d(st['query_kinds'])}" if st["query_kinds"] else ""), "",
+                  "| réteg | tároló | sor | Jev RELEVANT | címkézhető |", "|---|---|---|---|---|"]
+            L += [f"| {c['layer']} | {c['store']} | {c['n']} | {c['jev_relevant']} | {c['labelable']} |"
+                  for c in st["cells"]]
+            L.append("")
             if a["reason_by_choice"]:
                 L.append("- indokkód a választás mellett: "
                          + ", ".join(f"{x['jev']} / {x['reason']}: {x['n']}" for x in a["reason_by_choice"]))
