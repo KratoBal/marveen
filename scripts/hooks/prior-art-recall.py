@@ -595,6 +595,19 @@ def main():
             or prompt.startswith(("[Inbox]", "Stop hook feedback:")):
         return 0
 
+    # KEY ON THE MESSAGE, NOT ON ITS ENVELOPE (nautilus, 2026-09-28). A channel message
+    # arrives wrapped in <channel source=... chat_id=... message_id=... user=...>, and
+    # keywords() picked those attribute names: every inbound Discord message recalled on
+    # "message_id, channel, discord, chat_id", a 13-word question lost 4 of its 6 keyword
+    # slots to them, and the D-005 shadow logged pairs keyed on the envelope. Use the inner
+    # text only; a reply too short to key on ("Mehet", "2") gets no recall at all.
+    if not outgoing:
+        inner = [m.group(2).strip() for m in _CHANNEL_RX.finditer(prompt)]
+        if inner:
+            prompt = "\n".join(t for t in inner if t)
+            if len(prompt) < MIN_PROMPT_LEN:
+                return 0
+
     tok = token()
     if not tok:
         return 0
