@@ -253,6 +253,10 @@ def analyse(shadow, decisions, recall, cold_ms, match_window, idle_s=300):
             "rows": len(rows),
             "outcomes": outcomes,
             "provider_called": len(called),
+            # P-016 (d005-shadow-v2): one call writes one row per candidate and
+            # carries latency/tokens on the first row only -- so a call is a row
+            # with a latency. Under v1 every row is its own call.
+            "calls": sum(1 for r in called if r["latency"] is not None),
             "blocked_share_of_active": (round(len(blocked) / len(active), 4) if active else None),
             "errors": sum(1 for r in rows if r["outcome"] == "error_before_call"),
             "redaction_versions": dist(r["redaction"] for r in rows),
@@ -374,8 +378,8 @@ def coverage(rows, decisions, window):
 
 # A NEGATIVE idle is not a short pause: a call from an earlier second was still
 # RUNNING when this one started. It gets its own bucket, never "<10 s".
-IDLE_BUCKETS = ((float("-inf"), 0, "atfedes"), (0, 10, "<10 s"), (10, 60, "10-60 s"), (60, 300, "1-5 perc"),
-                (300, 1800, "5-30 perc"), (1800, None, ">=30 perc"), (None, None, "elso hivas"))
+IDLE_BUCKETS = ((float("-inf"), 0, "átfedés"), (0, 10, "<10 s"), (10, 60, "10-60 s"), (60, 300, "1-5 perc"),
+                (300, 1800, "5-30 perc"), (1800, None, ">=30 perc"), (None, None, "első hívás"))
 # Half-open like the idle buckets: [lo, hi).
 BURST_BUCKETS = ((1, 2, "1"), (2, 4, "2-3"), (4, 9, "4-8"), (9, None, "9+"))
 
@@ -445,10 +449,10 @@ def timing(called, cold_ms, idle_s):
     long_idle = lambda x: x["idle"] is None or x["idle"] >= idle_s
     burst = lambda x: x["same_second"] > 1 or x["in_flight"] > 1
     grid = {
-        "hosszu_szunet_egyedul": cell([x for x in rows if long_idle(x) and not burst(x)]),
-        "hosszu_szunet_csomagban": cell([x for x in rows if long_idle(x) and burst(x)]),
-        "rovid_szunet_egyedul": cell([x for x in rows if not long_idle(x) and not burst(x)]),
-        "rovid_szunet_csomagban": cell([x for x in rows if not long_idle(x) and burst(x)]),
+        "hosszú_szünet_egyedül": cell([x for x in rows if long_idle(x) and not burst(x)]),
+        "hosszú_szünet_csomagban": cell([x for x in rows if long_idle(x) and burst(x)]),
+        "rövid_szünet_egyedül": cell([x for x in rows if not long_idle(x) and not burst(x)]),
+        "rövid_szünet_csomagban": cell([x for x in rows if not long_idle(x) and burst(x)]),
     }
     by_idle = {}
     for _, _, name in IDLE_BUCKETS:
@@ -530,7 +534,7 @@ def markdown(rep, meta):
     for task, t in rep["by_task"].items():
         L += [f"## {task}", "",
               f"- kimenetel: {_d(t['outcomes'])}",
-              f"- szolgáltatóhoz ment: {t['provider_called']}; blokk-arány a nem kikapcsolt sorokon: "
+              f"- szolgáltatóhoz ment: {t['provider_called']} sor, {t['calls']} hívás; blokk-arány a nem kikapcsolt sorokon: "
               f"{_share(t['blocked_share_of_active'])}; hiba a hívás előtt vagy közben: {t['errors']}",
               f"- kitakaró-verzió: {_d(t['redaction_versions'])}; modell: {_d(t['models'])}; policy: {_d(t['policies'])}",
               f"- helyőrzők összesen: {_d(t['placeholders_total'])}; hívásonként {t['placeholders_per_call']}; helyőrző nélküli hívás: {t['calls_without_placeholder']}",
@@ -578,8 +582,8 @@ def markdown(rep, meta):
               "Átfedés: egy korábbi másodpercben indult hívás még futott (negatív szünet, külön sáv). "
               "Felbontás: 1 s.", "",
               "| hideg / összes | egyedül | csomagban |", "|---|---|---|",
-              f"| hosszú szünet után | {c(g['hosszu_szunet_egyedul'])} | {c(g['hosszu_szunet_csomagban'])} |",
-              f"| rövid szünet után | {c(g['rovid_szunet_egyedul'])} | {c(g['rovid_szunet_csomagban'])} |", "",
+              f"| hosszú szünet után | {c(g['hosszú_szünet_egyedül'])} | {c(g['hosszú_szünet_csomagban'])} |",
+              f"| rövid szünet után | {c(g['rövid_szünet_egyedül'])} | {c(g['rövid_szünet_csomagban'])} |", "",
               "Olvasat: ha csak a hosszú szünet sora hideg, a szolgáltató alszik el (ritka ébresztő hívás). "
               "Ha csak a csomag oszlopa, az egyidejűség (sorba állítás vagy kisebb párhuzamosság). "
               "Ha a rövid szünet utáni egyedüli hívás is gyakran hideg, egyik sem: a kapcsolatnyitást kell nézni. "

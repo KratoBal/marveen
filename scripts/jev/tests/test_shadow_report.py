@@ -85,6 +85,7 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(m["outcomes"], {"disabled": 2, "blocked_runtime_guard": 1,
                                          "error_before_call": 1, "provider_called": 1})
         self.assertEqual(m["provider_called"], 1)
+        self.assertEqual(m["calls"], 1)             # v1: every called row is its own call
         self.assertEqual(m["blocked_share_of_active"], round(1 / 3, 4))
         self.assertEqual(m["errors"], 1)
 
@@ -201,9 +202,9 @@ class WhyACallWasSlow(unittest.TestCase):
         self.assertEqual(cold[0]["idle_s"], 99.7)          # 200 - (100 + 0.3)
         # the call at +202 started while the 5 s call was running: overlap, in flight 2
         self.assertEqual(t["by_in_flight"], {"1": {"n": 3, "cold": 1}, "2-3": {"n": 1, "cold": 0}})
-        self.assertEqual(t["by_idle"]["elso hivas"], {"n": 1, "cold": 0})
+        self.assertEqual(t["by_idle"]["első hívás"], {"n": 1, "cold": 0})
         # the negative idle is an overlap, its own bucket -- never "<10 s"
-        self.assertEqual(t["by_idle"]["atfedes"], {"n": 1, "cold": 0})
+        self.assertEqual(t["by_idle"]["átfedés"], {"n": 1, "cold": 0})
         self.assertNotIn("<10 s", t["by_idle"])
 
     def test_same_second_and_in_flight_in_a_burst(self):
@@ -216,7 +217,7 @@ class WhyACallWasSlow(unittest.TestCase):
         self.assertEqual(sr._bucket(8, sr.BURST_BUCKETS), "4-8")
         self.assertEqual(sr._bucket(9, sr.BURST_BUCKETS), "9+")
         self.assertEqual(sr._bucket(300, sr.IDLE_BUCKETS), "5-30 perc")
-        self.assertEqual(sr._bucket(None, sr.IDLE_BUCKETS), "elso hivas")
+        self.assertEqual(sr._bucket(None, sr.IDLE_BUCKETS), "első hívás")
 
     def test_the_two_by_two_grid_separates_sleep_from_concurrency(self):
         rows = [mem(T0, "RELEVANT", True, latency=12000)]                                 # first call: long idle, alone
@@ -224,10 +225,10 @@ class WhyACallWasSlow(unittest.TestCase):
         rows += [out(T0 + 1100, latency=300)]                                              # short idle, alone
         rows += [mem(T0 + 1120, "RELEVANT", True, latency=300, rank=i) for i in range(1, 4)]    # short idle, burst
         g = Store(rows).report()["timing"]["grid"]
-        self.assertEqual(g, {"hosszu_szunet_egyedul": {"n": 1, "cold": 1},
-                             "hosszu_szunet_csomagban": {"n": 4, "cold": 4},
-                             "rovid_szunet_egyedul": {"n": 1, "cold": 0},
-                             "rovid_szunet_csomagban": {"n": 3, "cold": 0}})
+        self.assertEqual(g, {"hosszú_szünet_egyedül": {"n": 1, "cold": 1},
+                             "hosszú_szünet_csomagban": {"n": 4, "cold": 4},
+                             "rövid_szünet_egyedül": {"n": 1, "cold": 0},
+                             "rövid_szünet_csomagban": {"n": 3, "cold": 0}})
 
     def test_an_ended_call_is_not_in_flight_and_an_overlap_is_a_burst(self):
         # A runs 10 s; B starts at +2 and ends at +2.3; C starts at +5: only A is still running.
@@ -239,7 +240,7 @@ class WhyACallWasSlow(unittest.TestCase):
         c = [x for x in t["cold_calls"] if x["time"] == sr.iso(T0 + 5)]
         self.assertEqual(len(c), 1)
         self.assertEqual((c[0]["same_second"], c[0]["in_flight"]), (1, 2))
-        self.assertEqual(t["grid"]["rovid_szunet_csomagban"], {"n": 2, "cold": 1})
+        self.assertEqual(t["grid"]["rövid_szünet_csomagban"], {"n": 2, "cold": 1})
 
     def test_overlap_is_named_in_the_cold_list_and_markdown(self):
         # A runs 10 s from T0; B starts at +4 (6 s overlap) and is cold; C starts at +40 (short pause).
@@ -249,15 +250,15 @@ class WhyACallWasSlow(unittest.TestCase):
         t = st.report()["timing"]
         b = [x for x in t["cold_calls"] if x["time"] == sr.iso(T0 + 4)][0]
         self.assertEqual((b["idle_s"], b["overlap"]), (-6.0, True))
-        self.assertEqual(t["by_idle"], {"atfedes": {"n": 1, "cold": 1}, "10-60 s": {"n": 1, "cold": 0},
-                                        "elso hivas": {"n": 1, "cold": 1}})
+        self.assertEqual(t["by_idle"], {"átfedés": {"n": 1, "cold": 1}, "10-60 s": {"n": 1, "cold": 0},
+                                        "első hívás": {"n": 1, "cold": 1}})
         md = st.run()[1]
         self.assertIn("átfedés 6.0 s (előző még futott)", md)
         self.assertNotIn("szünet -", md)
 
     def test_zero_idle_is_a_pause_not_an_overlap(self):
         self.assertEqual(sr._bucket(0, sr.IDLE_BUCKETS), "<10 s")
-        self.assertEqual(sr._bucket(-0.1, sr.IDLE_BUCKETS), "atfedes")
+        self.assertEqual(sr._bucket(-0.1, sr.IDLE_BUCKETS), "átfedés")
 
     def test_only_provider_calls_count(self):
         t = Store([mem(T0, "RELEVANT", True), mem(T0, "RELEVANT", True, outcome="disabled"),
