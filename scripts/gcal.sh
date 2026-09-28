@@ -53,8 +53,8 @@ export GC_RT_PATH="$RT_PATH"
 
 case "$cmd" in
   auth-url|auth-code) ;;
-  check|events|mail) [ -f "$RT_PATH" ] || die "nincs refresh token ehhez a fiokhoz ($GC_ACCOUNT): $RT_PATH. Eloszor: GC_ACCOUNT=$GC_ACCOUNT gcal.sh auth-url, majd auth-code <kod>" ;;
-  *) die "ismeretlen parancs: '${cmd}' -- auth-url | auth-code | check | events | mail" ;;
+  check|events|mail|search|fetch) [ -f "$RT_PATH" ] || die "nincs refresh token ehhez a fiokhoz ($GC_ACCOUNT): $RT_PATH. Eloszor: GC_ACCOUNT=$GC_ACCOUNT gcal.sh auth-url, majd auth-code <kod>" ;;
+  *) die "ismeretlen parancs: '${cmd}' -- auth-url | auth-code | check | events | mail | search | fetch" ;;
 esac
 
 GC_CMD="$cmd" python3 - "$@" <<'PYEOF'
@@ -220,6 +220,79 @@ elif CMD == "events":
         start = (it.get("start", {}).get("dateTime") or it.get("start", {}).get("date"))
         print("%s | %s" % (start, it.get("summary", "(cim nelkul)")))
 
+elif CMD == "search":
+    # READ ONLY. Gmail search syntax, e.g. 'from:hertlein.de' or 'hertlein has:attachment'.
+    # Prints metadata only (id, date, from, subject, attachment names); never a body.
+    # Added 2026-09-28 for A-008: the access existed, the command did not.
+    if not a:
+        die("hasznalat: gcal.sh search '<gmail query>' [max, alap 500]")
+    query, limit = a[0], (int(a[1]) if len(a) > 1 else 500)
+    t = access_token()
+    ids, page = [], None
+    while len(ids) < limit:
+        params = {"q": query, "maxResults": str(min(500, limit - len(ids)))}
+        if page:
+            params["pageToken"] = page
+        r = get("https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode(params), t)
+        if r.get("__http"):
+            die("HTTP %s: %s" % (r["__http"], r["__body"]))
+        ids += [m["id"] for m in r.get("messages", [])]
+        page = r.get("nextPageToken")
+        if not page:
+            break
+    print("talalat: %d%s" % (len(ids), " (a limit vagta)" if page else ""))
+    def parts(p):
+        for x in p.get("parts", []) or []:
+            yield x
+            yield from parts(x)
+    for i in ids:
+        d = get("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s?format=full" % i, t)
+        pl = d.get("payload", {})
+        h = {x["name"]: x["value"] for x in pl.get("headers", [])}
+        att = [x.get("filename") for x in parts(pl) if x.get("filename")]
+        print("%s | %s | %s | %s | %s" % (i, h.get("Date", "?"), h.get("From", "?"), h.get("Subject", "(nincs targy)"), ";".join(att)))
+elif CMD == "fetch":
+    # READ ONLY. Saves one message into <dir>/<id>/: headers.txt, body.txt (text/plain,
+    # or tag-stripped text/html) and every attachment under its own name.
+    import base64, re as _re
+    if len(a) < 2:
+        die("hasznalat: gcal.sh fetch <uzenet-id> <celmappa>")
+    mid, outdir = a[0], a[1]
+    t = access_token()
+    d = get("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s?format=full" % mid, t)
+    if d.get("__http"):
+        die("HTTP %s: %s" % (d["__http"], d["__body"]))
+    tgt = os.path.join(outdir, mid)
+    os.makedirs(tgt, exist_ok=True)
+    pl = d.get("payload", {})
+    with open(os.path.join(tgt, "headers.txt"), "w", encoding="utf-8") as f:
+        for x in pl.get("headers", []):
+            if x["name"] in ("Date", "From", "To", "Cc", "Subject", "Message-ID", "In-Reply-To"):
+                f.write("%s: %s\n" % (x["name"], x["value"]))
+    def walk(p):
+        yield p
+        for x in p.get("parts", []) or []:
+            yield from walk(x)
+    plain, html, n = [], [], 0
+    for p in walk(pl):
+        b = p.get("body", {})
+        fn = p.get("filename")
+        if fn:
+            data = b.get("data")
+            if not data and b.get("attachmentId"):
+                data = get("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s/attachments/%s" % (mid, b["attachmentId"]), t).get("data")
+            if data:
+                safe = _re.sub(r"[^\w.+-]", "_", fn)
+                with open(os.path.join(tgt, safe), "wb") as f:
+                    f.write(base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)))
+                n += 1
+        elif b.get("data") and p.get("mimeType") in ("text/plain", "text/html"):
+            txt = base64.urlsafe_b64decode(b["data"] + "=" * (-len(b["data"]) % 4)).decode("utf-8", "replace")
+            (plain if p["mimeType"] == "text/plain" else html).append(txt)
+    body = "\n".join(plain) if plain else _re.sub(r"<[^>]+>", " ", "\n".join(html))
+    with open(os.path.join(tgt, "body.txt"), "w", encoding="utf-8") as f:
+        f.write(body)
+    print("%s: %d melleklet, torzs %d karakter" % (mid, n, len(body)))
 elif CMD == "mail":
     from datetime import datetime, timedelta, timezone
     hours = int(a[0]) if a else 12
