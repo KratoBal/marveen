@@ -28,7 +28,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r4"
+REDACTION_VERSION = "r5"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -351,9 +351,14 @@ def _find_spans(text, known):
     initial = []
     for m in re.finditer(r"(?<![\w-])" + UP + L + r"+(?:-" + UP + L + r"+)?(?![\w])", text):
         w = m.group(0)
-        if _is_preserved(w) or not any(c.islower() for c in w):
+        if _is_preserved(w):
             continue
         base = fold(w)
+        if not any(c.islower() for c in w):
+            # ALL-CAPS single word: only a listed name, inflected or not (BALAZSNAL)
+            if len(base) >= 3 and _is_name(base):
+                spans.append((m.start(), m.end(), "PERSON"))
+            continue
         if _is_name(base):
             spans.append((m.start(), m.end(), "PERSON"))
         elif not _sentence_initial(text, m.start()):
@@ -601,7 +606,8 @@ def redact(text, *, keep_dates=False):
                 out.append("")
                 counts[kind] = counts.get(kind, 0) + 1
             else:
-                key = (kind, fold(text[s:e]))
+                f = fold(text[s:e])
+                key = (kind, _strip_suffix(f) if kind in ("PERSON", "PROPER") else f)
                 if key not in mapping:
                     counts[kind] = counts.get(kind, 0) + 1
                     mapping[key] = f"<{kind}_{counts[kind]}>"

@@ -78,6 +78,11 @@ def admit(kind, value):
     return True
 
 
+# Fleet-level identities that are not rows in the OS database: the owner's
+# account handle appears in every repository URL we write.
+EXTRA = [("HANDLE", "KratoBal")]
+
+
 def main():
     rows = list(fetch())
     kept, counts = [], {}
@@ -85,6 +90,8 @@ def main():
         if admit(kind, value):
             kept.append((kind, value))
             counts[kind] = counts.get(kind, 0) + 1
+    kept.extend(EXTRA)
+    counts["HANDLE"] = len(EXTRA)
     print(f"rows {len(rows)}, admitted {len(kept)}: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
     if "--dry-run" not in sys.argv:
         n = redact.write_known_file(kept, redact.KNOWN_ENTITIES_PATH)
