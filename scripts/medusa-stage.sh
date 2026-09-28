@@ -472,6 +472,28 @@ except BrokenPipeError:
     os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 "
     ;;
+  get)
+    # EGYETLEN /store GET, LAPOZAS NELKUL, NYERS JSON (barracuda kerese, 2026-09-28).
+    # A `query` ag limit/offset parametert fuz hozza, es ket vegpont ezt 400-zal
+    # elutasitja: /store/payment-options es /store/carts/<id> ("Unrecognized fields:
+    # 'limit, offset'"). Az adat megvolt, a parancs nem.
+    # Hasznalat: get /store/<utvonal> ["kulcs=ertek&kulcs2=ertek2"]
+    # Ugyanazok a hatarok: a host beegetve, csak GET, csak /store, az utvonal
+    # szegmensenkent kodolva, a query-string kulon argumentumban, kodolva.
+    P="${2:-}"; Q="${3:-}"
+    case "$P" in
+      /store/*) ;;
+      *) echo "usage: medusa-stage.sh get /store/<utvonal> [\"k=v&k2=v2\"]" >&2; exit 2 ;;
+    esac
+    case "$P" in *\?*|*\&*) echo "a query-string a HARMADIK argumentumba megy, nem az utvonalba" >&2; exit 2 ;; esac
+    URL="$(P="$P" Q="$Q" python3 -c '
+import os, urllib.parse
+p = "/".join(urllib.parse.quote(s, safe="") for s in os.environ["P"].split("/"))
+q = urllib.parse.urlencode(urllib.parse.parse_qsl(os.environ["Q"], keep_blank_values=True))
+print(p + ("?" + q if q else ""))
+')"
+    get "$URL"; echo
+    ;;
   exists)
     P="${2:-}"
     [ -n "$P" ] || { echo "usage: medusa-stage.sh exists /store/<valami>" >&2; exit 2; }
