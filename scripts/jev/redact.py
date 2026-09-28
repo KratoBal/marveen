@@ -28,7 +28,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r5"
+REDACTION_VERSION = "r9"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -131,6 +131,8 @@ _add("SECRET", _NB + r"(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[A-Za-z])[A-Za-z
 _add("URL_QUERY", r"(?<=[A-Za-z0-9/._~-])[?#][^\s<>\"')\]]+")
 
 _add("EMAIL", r"(?i)(?<![^\W_])[^\W_][\w.-]*(?:\s+pont\s+[\w-]+)*\s+(?:kukac|at|\(at\)|\[at\])\s+[\w-]+(?:\s+pont\s+[\w-]+)+")
+_add("EMAIL", r"(?<![\w.@-])[\w.-]+@(?=[\s,;:)]|$)")
+_add("DOMAIN", r"(?i)(?<![\w@.-])(?:[a-z0-9-]+\.)+(?:hu|com|de|at|eu|org|net|io|sk|ro|cz|uk|nl|shop|store)\b")
 _add("EMAIL", r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[^\W\d_]{2,}")
 
 _add("IBAN", r"(?i)\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]{4}){3,7}(?:[ -]?[A-Z0-9]{1,3})?\b")
@@ -143,7 +145,7 @@ _add("PHONE", _NB + r"06(?:[\s/().-]*\d){8,9}" + _NA)
 _add("PHONE", _NB + r"(?:1|20|21|30|31|50|70)[/-]\d{3}[- ]?\d{3,4}" + _NA)
 # spoken digits, alone or mixed with figures ("nullahat-harmincas, het-het-egy 04 58")
 _DW = r"(?:nulla\w*|egy|kettő|ketto|két|ket|három|harom|négy|negy|öt|ot|hat|hét|het|nyolc|kilenc|tíz\w*|tiz\w*|húsz\w*|husz\w*|harminc\w*|negyven\w*|ötven\w*|otven\w*|hatvan\w*|hetven\w*|nyolcvan\w*|kilencven\w*|száz\w*|szaz\w*|\d{1,4})"
-_add("PHONE", r"(?i)(?<![^\W_])" + _DW + r"(?:[\s,-]+" + _DW + r"){3,}(?![^\W_])")
+_add("PHONE", r"(?i)(?<![^\W_])(?=(?:\d{1,4}[\s,-]+)*[^\W\d_])" + _DW + r"(?:[\s,-]+" + _DW + r"){3,}(?![^\W_])")
 # dictated numbers: compound Hungarian number words ("négyszáztizenkettő")
 _NR = r"(?:nulla|egy|kettő|ketto|két|ket|három|harom|négy|negy|öt|ot|hat|hét|het|nyolc|kilenc|tíz|tiz|tizen|húsz|husz|huszon|harminc|negyven|ötven|otven|hatvan|hetven|nyolcvan|kilencven|száz|szaz|ezer|első|elso|máso|maso|harma|negye|ötö|oto|hato|hete|nyolca|kilence|tize|husza|harminca)"
 _NUMW = r"(?:" + _NR + r"){1,6}(?:dik|edik|adik|ödik|odik|dikán|dikén|edikén|adikán|ödikén|kor|akor|ekor|órakor|as|es|ös|os|án|én|a|e|t|at|et|öt)?"
@@ -153,6 +155,9 @@ _add("PHONE", r"(?<![\d)])\(\d{1,2}\)\s*\d{3}[-\s]?\d{3,4}(?!\d)")
 _add("ID", _NB + r"\d{2,4}(?:[ .]\d{2,4}){2,}" + _NA)
 
 _add("ID", r"\bc[a-z0-9]{24}\b")                      # cuid record ids
+_add("ID", r"\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z][a-z0-9]*[a-z])[a-z0-9]{20,}\b")   # coolify-style ids
+_add("ID", r"\b(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]{1,5}(?:-[A-Z0-9]{1,6}){1,4}\b")
+_add("ID", r"\b[A-Z0-9]{2,4}/[A-Z0-9]{2,4}(?:/[A-Z0-9]{2,4})?\b")
 _add("ID", r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?::\d{2,5})?(?![\d.])")
 _add("ID", r"(?i)(?<![\w:])(?=[0-9a-f:]*(?:::|[a-f]))[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:])")
 _add("ID", r"(?<![\w-])(?=[\w-]*\d[\w-]*\d[\w-]*\d)(?=[\w-]*[A-Za-z])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?![\w-])")
@@ -161,12 +166,12 @@ _add("ID", r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\
 _add("ID", r"\b[A-Z]{1,6}-(?:19|20)\d{2}[-/]\d{1,8}\b")
 _add("ID", r"\b[A-Z]{2,6}[-/]?\d{5,}\b")
 _add("ID", r"\b(?:[A-Z]{1,6}-){1,3}[A-Z]*\d{3,}\b")
-_add("ID", r"(?<![0-9A-Za-z#])#\d{2,}\b")
 _add("ID", _NB + r"\d{5,}" + _NA)
 _add("ID", r"(?i)\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 _add("ID", r"(?i)(?<![^\W\d_])(?:rendelés|rendeles|számla|szamla|ticket|hibajegy|munkalap|megrendelés|megrendeles|order|invoice|eszköz|eszkoz|asset|leltári szám|leltari szam|sorozatszám|sorozatszam|serial)(?:szám|szam)?(?:\s+száma|\s+szama)?\s*[:#]?\s*(?P<v>(?=\S*\d)[A-Za-z0-9/-]{4,})")
 
 _add("AMOUNT", r"(?i)(?<![\w])(?:\d{1,3}(?:[ .  ]\d{3})+|\d+)(?:[.,]\d+)?(?:,-)?\s*(?:e|ezer|k|m|millió|millio|milliárd|milliard)?\.?\s*(?:Ft|HUF|forint|EUR|euró|euro|€|USD|dollár|dollar|\$)(?!\w)")
+_add("AMOUNT", r"(?<![\d.,])\d{1,3}(?:\.\d{3})+(?:,\d+)?(?!\d|\.\d)")   # 22.500: Hungarian thousands
 _add("AMOUNT", r"(?i)(?:€|\$|EUR|USD|HUF)\s?\d[\d ., ]*\d")
 
 _MONTHS = r"(?:január|február|március|április|május|június|július|augusztus|szeptember|október|november|december|januar|februar|marcius|aprilis|majus|junius|julius|oktober|jan|febr|márc|marc|ápr|apr|máj|maj|jún|jun|júl|jul|aug|szept|okt|nov|dec)\.?"
@@ -176,8 +181,10 @@ _add("DATE", r"\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b")
 _add("DATE", r"(?i)(?<![^\W_])(?:\d{1,2}|" + _NUMW + r")\s*(?:óra|ora)(?:\s*(?:\d{1,2}|" + _NUMW + r")(?:\s*perc)?)?(?:-?kor|kor)?(?![^\W_])")
 _add("DATE", r"(?i)(?<![^\W_])(?:" + _NR + r"){1,3}(?:kor|akor|ekor|órakor|orakor)(?![^\W_])")
 _add("DATE", r"(?i)(?<![^\W_])" + _MONTHS + r"\s+(?:" + _NR + r"){1,4}(?:dik|edik|adik|ödik|odik)?(?:án|én|an|en|a|e|ától|étől|áig|éig|i)?(?![^\W_])")
-_add("DATE", r"(?i)(?<![\d:.])(?:[01]?\d|2[0-3])[:.][0-5]\d(?![.:]\d{1,2}\.\d)(?:[:.][0-5]\d)?(?:\s?(?:am|pm|h|óra|ora))?(?![\d])")
+_add("DATE", r"(?i)(?<![\d:.])(?:[01]?\d|2[0-3])[:.][0-5]\d(?!\.\d{1,2}\.\d)(?:[:.][0-5]\d)?(?:\s?(?:am|pm|h|óra|ora)(?![^\W_]))?(?![\d])")
 _add("DATE", r"(?i)\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)?,?\s*(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s*(?:19|20)\d{2}")
+_add("DATE", r"(?<![\d-])(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?![\d-])")
+_add("DATE", r"(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]x")
 _add("DATE", r"(?<![\d.])(?:0?[1-9]|1[0-2])\.\s?(?:0?[1-9]|[12]\d|3[01])\.(?!\d)")
 
 _STREET = r"(?:utca|u\.|sugárút|sgt\.|sugarut|út|útja|körút|krt\.|tér|tere|köz|sor|sétány|fasor|rakpart|dűlő|lakótelep|ltp\.|park|liget|lejtő|lépcső|ut|utja|korut|ter|dulo|setany)"
@@ -199,7 +206,7 @@ _add("PERSON", _HON + r"[ \t]+" + _NAMEWORD + r"(?:[ \t]+" + _NAMEWORD + r"){0,3
 _add("PERSON", r"(?<![\w-])" + _NAMEWORD + r"(?:[ \t]+" + _NAMEWORD + r"){1,3}(?:né)?(?![\w])")
 # "Hegedus, Istvan" (surname, given name) and ALL-CAPS signatures
 _add("PERSON", r"(?<![\w-])" + _NAMEWORD + r",[ \t]+" + _NAMEWORD + r"(?![\w])")
-_add("PERSON", r"(?<![\w-])[A-ZÁÉÍÓÖŐÚÜŰ]{2,}(?:-[A-ZÁÉÍÓÖŐÚÜŰ]{2,})?(?:[ \t]+[A-ZÁÉÍÓÖŐÚÜŰ]{2,}){1,3}(?![\w])")
+_add("CAPS", r"(?<![\w-])[A-ZÁÉÍÓÖŐÚÜŰ]{2,}(?:-[A-ZÁÉÍÓÖŐÚÜŰ]{2,})?(?:[ \t]+[A-ZÁÉÍÓÖŐÚÜŰ]{2,}){1,3}(?![\w])")
 # mentions and handles
 _add("HANDLE", r"(?<![\w@])@[\w.-]{2,}")
 _add("HANDLE", r"(?<=\s)[a-z0-9._-]+@[a-z0-9-]+(?:\.local|\.lan)?(?=\s|$)")
@@ -276,6 +283,10 @@ def _known_spans(text, known):
     Hungarian case ending, looked up by digest."""
     salt, table, maxn = known
     toks = [(m.start(), m.end(), fold(m.group(0))) for m in _TOKEN.finditer(text)]
+    # also the dot-free pieces, so a name inside "lap-allatkert.docx" is seen
+    toks += [(m.start(), m.end(), fold(m.group(0))) for m in re.finditer(r"[^\W_]+", text)
+             if "." in text[max(0, m.start() - 1):m.end() + 1]]
+    toks.sort()
     out = []
     for i in range(len(toks)):
         for n in range(1, maxn + 1):
@@ -287,6 +298,9 @@ def _known_spans(text, known):
             for suf in _SUFFIXES_F:
                 if last.endswith(suf) and len(last) - len(suf) >= 2:
                     variants.add(last[: -len(suf)])
+            # assimilated -val/-vel: allatkerttel, kovaccsal
+            if len(last) >= 6 and last[-2:] in ("al", "el") and last[-3] == last[-4]:
+                variants.add(last[:-3])
             for v in variants:
                 kind = table.get(_digest(salt, known_key(words[:-1] + [v])))
                 if kind:
@@ -334,6 +348,24 @@ def _find_spans(text, known):
             s, e = (m.start("v"), m.end("v")) if "v" in rx.groupindex else (m.start(), m.end())
             if e <= s:
                 continue
+            if kind == "DOMAIN":
+                # our own hosts and preserved products stay; any other host
+                # names a business, and a partner's name must not travel
+                host = fold(text[s:e])
+                if host.endswith("acropora.hu") or host.split(".")[0] in PRESERVE \
+                        or host in ("github.com", "discord.com", "typesafe.ai", "api.typesafe.ai"):
+                    continue
+                spans.append((s, e, "DOMAIN"))
+                continue
+            if kind == "CAPS":
+                # an all-caps run is emphasis ("SAJAT HIBA") unless one of its
+                # words is a listed name or not an ordinary word in our texts
+                words = [fold(w) for w in text[s:e].split()]
+                if any(_is_name(w) for w in words) or (COMMON and any(
+                        w not in COMMON and _stem(w) not in COMMON and w not in PRESERVE
+                        and w not in _LABELS for w in words)):
+                    spans.append((s, e, "PERSON"))
+                continue
             if kind == "HANDLE" and _is_preserved(text[s:e].lstrip("@").split("@")[0]):
                 continue
             if kind == "PERSON":
@@ -355,9 +387,13 @@ def _find_spans(text, known):
             continue
         base = fold(w)
         if not any(c.islower() for c in w):
-            # ALL-CAPS single word: only a listed name, inflected or not (BALAZSNAL)
+            # ALL-CAPS single word: a listed name, inflected or not (BALAZSNAL),
+            # or a long word our texts never use in lower case (a company)
             if len(base) >= 3 and _is_name(base):
                 spans.append((m.start(), m.end(), "PERSON"))
+            elif len(base) >= 6 and COMMON and base not in COMMON and _stem(base) not in COMMON \
+                    and base not in _LABELS:
+                spans.append((m.start(), m.end(), "PROPER"))
             continue
         if _is_name(base):
             spans.append((m.start(), m.end(), "PERSON"))
@@ -505,7 +541,8 @@ def _person_span(text, s, e):
 # Hungarian inflection: "Péternek", "Annától", "Kovácséknál". Only used to
 # decide whether a single capitalised word is a given name, never to trim.
 _SUFFIXES = sorted("""nak nek val vel ban ben ba be ból ből ról ről ra re ról tól től hoz hez höz
-nál nél ig ért ként kor ot et öt at t on en ön n é ék éknál éknek éké nál ét ja je a e i""".split(),
+nál nél ig ért ként kor ot et öt at t on en ön n é ék éknál éknek éké nál ét ja je a e i
+né nét néhez nével nének nénél nétől néről""".split(),
                    key=len, reverse=True)
 
 
@@ -566,7 +603,7 @@ def _merge(spans):
     """Overlaps resolve to the widest span; on equal width, the more
     sensitive kind (ALWAYS_MASKED first) wins."""
     rank = {k: i for i, k in enumerate(["SECRET", "IBAN", "BANK_ACCOUNT", "TAX_ID", "EMAIL",
-                                        "PHONE", "URL_QUERY", "ADDRESS", "PERSON", "HANDLE", "ORG", "PROPER",
+                                        "PHONE", "URL_QUERY", "ADDRESS", "PERSON", "HANDLE", "ORG", "DOMAIN", "PROPER",
                                         "ID", "AMOUNT", "DATE"])}
     spans = sorted(spans, key=lambda x: (x[0], -(x[1] - x[0]), rank.get(x[2], 99)))
     out = []

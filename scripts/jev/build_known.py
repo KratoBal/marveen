@@ -14,6 +14,7 @@ Usage: python3 build_known.py            (writes the file)
        python3 build_known.py --dry-run  (counts only)
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -63,6 +64,26 @@ def fetch():
         yield kind, value
 
 
+_FORM = re.compile(r"(?i)[\s,]+(?:kft|bt|zrt|nyrt|kkt|ev|e\.v|gmbh|ltd|llc|inc|s\.r\.o)\.?$")
+
+
+def aliases(kind, value):
+    """Organisations are named in chat by fragments: the acronym in
+    brackets, an all-caps word, the name without its company form. nautilus
+    found FANK, INNONEST and TROPUS unmasked on 2026-09-28 because only the
+    full registered name was a digest."""
+    if kind != "ORG" or not value:
+        return []
+    out = []
+    bare = _FORM.sub("", value).strip()
+    if bare and bare != value:
+        out.append(bare)
+    out += re.findall(r"\(([^)]{2,40})\)", value)
+    out += [w for w in re.findall(r"\b[A-ZÁÉÍÓÖŐÚÜŰ]{3,}\b", value)
+            if redact.fold(w) not in redact.PRESERVE and redact.fold(w) not in redact.COMMON]
+    return [("ORG", x) for x in out]
+
+
 def admit(kind, value):
     toks = redact.entity_tokens(value or "")
     if not toks:
@@ -80,12 +101,17 @@ def admit(kind, value):
 
 # Fleet-level identities that are not rows in the OS database: the owner's
 # account handle appears in every repository URL we write.
-EXTRA = [("HANDLE", "KratoBal")]
+EXTRA = [("HANDLE", "KratoBal"),
+         # partners named in chat by a nickname no database row carries
+         ("ORG", "FANK"), ("ORG", "Állatkert"), ("ORG", "Fővárosi Állatkert"),
+         # third-party businesses nautilus and barracuda found by name, 2026-09-28
+         ("ORG", "INNONEST"), ("ORG", "TROPUS")]
 
 
 def main():
     rows = list(fetch())
     kept, counts = [], {}
+    rows = rows + [al for kind, value in rows for al in aliases(kind, value)]
     for kind, value in rows:
         if admit(kind, value):
             kept.append((kind, value))
