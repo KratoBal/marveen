@@ -513,7 +513,11 @@ def query_ref(payload, outgoing):
     peer = _PEER_RX.search(prompt)
     if peer and "trusted-peer" in prompt:
         return _ref("peer", None, q_msg=peer.group(1)), None
-    return _ref("other"), None
+    # P-017: a class token, never text, so later "other" rows can be split by source
+    head = prompt.lstrip()[:40]
+    cls = ("stop_hook" if head.startswith("Stop hook") else "task_notif" if "task-notification" in prompt[:200]
+           else "wakeup" if head.startswith(("PD-", "[Heartbeat", "SCHEDULED")) else "terminal")
+    return _ref("other", q_class=cls), None
 
 
 def _jev_shadow(prompt, rows, ranked, outgoing, payload=None):
@@ -583,7 +587,12 @@ def main():
     # is the same case: its own words, not the message, which inbox-drain.py adds as context.
     # Measured 2026-09-28 by nautilus: these rows fed the D-005 shadow a pair that never
     # happened (nudge words as the query, candidates recalled on "bejovo, blokk, dolgozd").
-    if any(m in prompt for m in ("inbox-wakeup", "[SYSTEM:", "scheduled-task")) or prompt.startswith("[Inbox]"):
+    # Same gap, nautilus 2026-09-28: a background-task notice arrives as "[SYSTEM NOTIFICATION
+    # - NOT USER INPUT] <task-notification>...", which does not contain "[SYSTEM:"; a Stop hook
+    # echo arrives as "Stop hook feedback:". Both carry no subject of their own.
+    if any(m in prompt for m in ("inbox-wakeup", "[SYSTEM:", "scheduled-task", "[SYSTEM NOTIFICATION",
+                                 "<task-notification>")) \
+            or prompt.startswith(("[Inbox]", "Stop hook feedback:")):
         return 0
 
     tok = token()
