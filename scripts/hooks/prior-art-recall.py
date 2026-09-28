@@ -308,6 +308,11 @@ def channel_rows():
                 (m.get("author") or {}).get("username", "?"),
                 (m.get("timestamp") or "")[:16].replace("T", " "),
                 text,
+                # P-017: the ids, so a candidate can be fetched again later
+                # (GET /channels/<chan>/messages/<id>) -- the cache only ever
+                # holds the last 100 per channel.
+                chan,
+                str(m.get("id") or ""),
             ])
     try:
         with open(CHANNEL_CACHE, "w", encoding="utf-8") as fh:
@@ -370,18 +375,39 @@ def script_headers():
     return out
 
 
+_REF_TOKEN = re.compile(r"^[A-Za-z0-9_.:-]{1,40}$")
+# P-017 (blind human labels, 2026-10-05): id(row) -> the stable reference of
+# that hit, filled by collect(). A side table, so the row keeps its 4-element
+# shape at every unpacking site. The shadow log gets it through `local`.
+CANDIDATE_REFS = {}
+
+
+def _ref(kind, ref=None, **extra):
+    """Store kind plus ids, and only code-like tokens: an id that does not fit
+    the pattern is dropped, never passed on as text."""
+    out = {"ref_kind": kind}
+    for k, v in (("ref", ref),) + tuple(extra.items()):
+        v = "" if v is None else str(v)
+        if _REF_TOKEN.match(v):
+            out[k] = v
+    return out
+
+
 def collect(words, tok, agent):
     """key -> [score, label, text, order]. Score counts how many keywords found the same row."""
     hits = {}
     order = [0]
+    CANDIDATE_REFS.clear()
 
-    def bump(key, label, text):
+    def bump(key, label, text, ref=None):
         row = hits.get(key)
         if row:
             row[0] += 1
         else:
             order[0] += 1
             hits[key] = [1, label, text, order[0]]
+            if ref is not None:
+                CANDIDATE_REFS[id(hits[key])] = ref
 
     for w in words:
         # HUNGARIAN SUFFIXES BREAK A DICTIONARY-FORM SEARCH, and the search side is where it
@@ -403,14 +429,17 @@ def collect(words, tok, agent):
                 "m%s" % m.get("id"),
                 "emlek %s / %s / %s" % (m.get("id"), m.get("category") or "?", day),
                 (m.get("content") or "").replace("\n", " "),
+                _ref("emlek", m.get("id")),
             )
         for l in (data.get("logs") or [])[:5]:
-            bump("l%s" % l.get("id"), "naplo %s" % (l.get("date") or "?"), headline(l.get("content")))
+            bump("l%s" % l.get("id"), "naplo %s" % (l.get("date") or "?"), headline(l.get("content")),
+                 _ref("naplo", l.get("id")))
         for c in (data.get("cards") or [])[:5]:
             bump(
                 "k%s" % c.get("id"),
                 "kartya %s / %s" % (str(c.get("id"))[:8], c.get("status") or "?"),
                 c.get("title") or "",
+                _ref("kartya", c.get("id")),
             )
         for c in (data.get("comments") or [])[:5]:
             # The card's title is carried into the label: a comment without its card
@@ -419,6 +448,7 @@ def collect(words, tok, agent):
                 "c%s" % c.get("id"),
                 "komment %s / %s" % (str(c.get("card_id"))[:8], (c.get("card_title") or "")[:40]),
                 (c.get("content") or "").replace("\n", " "),
+                _ref("komment", c.get("id"), ref_card=c.get("card_id")),
             )
 
     # THE CHANNEL, matched in memory against the same stems. Folded (accent- and case-blind),
@@ -430,9 +460,12 @@ def collect(words, tok, agent):
             if len(stem) < 4:
                 continue
             for i, row in enumerate(rows):
-                label, who, ts, text = row
+                label, who, ts, text = row[:4]
+                # an older 4-column cache (before P-017) carries no ids until it expires
+                ids = row[4:6] if len(row) >= 6 else (None, None)
                 if stem in strip_accents(text).lower():
-                    bump("d%d" % i, "csatorna %s / %s / %s" % (label, who, ts), text)
+                    bump("d%d" % i, "csatorna %s / %s / %s" % (label, who, ts), text,
+                         _ref("csatorna", ids[1], ref_chat=ids[0]))
 
     # OUR OWN SCRIPTS -- see script_headers() for the measured case that added this store.
     # Matched on the same folded stems as the channel, for the same reason.
@@ -442,11 +475,48 @@ def collect(words, tok, agent):
             if len(stem) < 4:
                 continue
             if stem in body:
-                bump("s%s" % path, "eszkoz %s" % path, answers)
+                bump("s%s" % path, "eszkoz %s" % path, answers, _ref("eszkoz", os.path.basename(path)))
     return hits
 
 
-def _jev_shadow(prompt, rows, ranked, outgoing):
+# The same envelope ledger-capture.py reads: the ledger stores each inbound
+# channel message under (chat_id, message_id), so that pair finds the text again.
+_CHANNEL_RX = re.compile(
+    r'<channel\s+source="plugin:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+"([^>]*)>(.*?)</channel>', re.DOTALL)
+_PEER_RX = re.compile(r"msg_id:(\d{1,20})")
+
+
+def _attr(attrs, name):
+    m = re.search(name + r'="([^"]*)"', attrs)
+    return m.group(1) if m else None
+
+
+def query_ref(payload, outgoing):
+    """P-017: where the QUERY can be found again, without its text.
+      reply    outgoing: the reply tool's chat_id; the message id does not exist
+               yet, so the ledger's outbound row is found by the keyed query_hash
+               (shadow.py hashes the exact tool_input text, which the ledger stores)
+      channel  inbound channel message: (q_chat, q_msg) as in conversation_log;
+               the LAST envelope, the newest message of the turn
+      peer     inter-agent message: q_msg is its msg_id in /api/messages
+      other    none of these (terminal prompt, notification): hash only"""
+    if outgoing:
+        ti = payload.get("tool_input") or {}
+        return _ref("reply", None, q_chat=ti.get("chat_id") if isinstance(ti, dict) else None), \
+            (str(ti.get("text")) if isinstance(ti, dict) and ti.get("text") is not None else None)
+    prompt = payload.get("prompt") or ""
+    envs = list(_CHANNEL_RX.finditer(prompt))
+    if envs:
+        attrs = envs[-1].group(1)
+        return _ref("channel", None, q_chat=_attr(attrs, "chat_id"), q_msg=_attr(attrs, "message_id"),
+                    q_count=len(envs)), None
+    peer = _PEER_RX.search(prompt)
+    if peer and "trusted-peer" in prompt:
+        return _ref("peer", None, q_msg=peer.group(1)), None
+    return _ref("other"), None
+
+
+def _jev_shadow(prompt, rows, ranked, outgoing, payload=None):
     """D-005 HIDDEN shadow (PD-006, 2026-09-28): ask Jev, on the side, whether
     each candidate is relevant to the prompt. One query plus ONE candidate per
     job, never the conversation. Everything happens in a detached child that
@@ -463,12 +533,20 @@ def _jev_shadow(prompt, rows, ranked, outgoing):
         # P-016 (ACD-013, 2026-09-28): ONE provider call per message with every
         # candidate, not one per hit; per-hit fan-out made up to 11 concurrent
         # calls and the slow tail. Each candidate still gets its own verdict.
+        # P-017: every row carries WHERE its candidate and its query live
+        # (store ids, message ids -- never text), so the blind two-reader
+        # sample on 2026-10-05 can fetch both again. q_kind replaces the
+        # generic ref_kind key for the query side.
+        qref, exact = query_ref(payload or {}, outgoing)
+        qref = {("q_kind" if k == "ref_kind" else k): v for k, v in qref.items()}
         shadow.submit_batch(prompt, [
             {"candidate": text or "",
-             "local": {"score": score, "store": label.split()[0], "rank": rank,
-                       "shown": id(r) in shown, "direction": "out" if outgoing else "in"}}
+             "local": dict({"score": score, "store": label.split()[0], "rank": rank,
+                            "shown": id(r) in shown, "direction": "out" if outgoing else "in"},
+                           **{k: v for k, v in CANDIDATE_REFS.get(id(r), {}).items() if k != "ref_kind"},
+                           **qref)}
             for rank, r in enumerate(cands)
-            for score, label, text, _ in [r]])
+            for score, label, text, _ in [r]], query_exact=exact)
     except Exception:  # noqa: BLE001 -- a measurement must never touch the hook
         pass
 
@@ -551,7 +629,7 @@ def main():
     text = "\n".join(out) + "\n"
     strong = any(score > 1 for score, _, _, _ in rows)
     brake = bool(outgoing and strong and asks_something(prompt) and not already_warned(prompt))
-    _jev_shadow(prompt, rows, ranked, outgoing)
+    _jev_shadow(prompt, rows, ranked, outgoing, payload)
     # Columns 4-6 added 2026-09-28 (D-005 baseline): the characters actually put
     # into context, the direction, and whether the brake fired. The first three
     # columns keep their old meaning, so older readers of this file still work.

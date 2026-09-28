@@ -111,6 +111,13 @@ def _input_hash(fields):
                            key=_salt(), digest_size=8).hexdigest()
 
 
+def text_hash(text):
+    """P-017: keyed hash of ONE exact text, so the blind-label sampler can find
+    the query in the ledger and check that a candidate's source text is still
+    the one that was judged. Same salt as input_hash; never reversible here."""
+    return hashlib.blake2b(str(text).encode("utf-8"), key=_salt(), digest_size=8).hexdigest()
+
+
 def _redacted_dto(fields, limits):
     """Redacts each field in full and cuts the REDACTED text to its limit:
     a cut before redaction can split an email or a name so that no pattern
@@ -357,6 +364,8 @@ def run_batch(job):
     valid only as a whole (ACD-013 point 1): a missing key, an extra key or a
     malformed answer marks every called row batch_invalid, without answers."""
     query = str(job.get("query", ""))
+    # the exact text the ledger stores (outgoing: tool_input text, unstripped)
+    query_exact = job.get("query_exact") if isinstance(job.get("query_exact"), str) else query
     cands = job.get("candidates") if isinstance(job.get("candidates"), list) else []
     cands = cands[:MAX_BATCH]
     ts = int(time.time())
@@ -381,6 +390,13 @@ def run_batch(job):
         return finish("disabled")
     if not _gate_green():
         return finish("blocked_leak_gate")
+    try:
+        qh = text_hash(query_exact)
+        for row, c in zip(rows, cands):
+            row["query_hash"] = qh
+            row["cand_hash"] = text_hash(str(c.get("candidate", "")) if isinstance(c, dict) else "")
+    except OSError:
+        pass   # no salt file: the rows go without the P-017 hashes, nothing else changes
     try:
         qdto = _redacted_dto({"query": query}, {"query": MAX_MESSAGE_CHARS})
     except Blocked as b:
@@ -446,9 +462,13 @@ def run_batch(job):
     return finish("provider_called")
 
 
-def submit_batch(query, candidates):
-    """For the recall hook under P-016: one detached child per message."""
-    submit({"task": "memory_batch", "query": query, "candidates": candidates})
+def submit_batch(query, candidates, query_exact=None):
+    """For the recall hook under P-016: one detached child per message.
+    query_exact (P-017): the text as the ledger stores it, for query_hash."""
+    job = {"task": "memory_batch", "query": query, "candidates": candidates}
+    if query_exact is not None:
+        job["query_exact"] = query_exact
+    submit(job)
 
 
 def _log(row):
