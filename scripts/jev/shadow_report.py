@@ -17,7 +17,7 @@ log: the whitelist decides, not the log.
 
 Usage:
   python3 shadow_report.py [--store DIR] [--since EPOCH|ISO] [--cold-ms 9000]
-                           [--out DIR]
+                           [--idle-s 300] [--window 10] [--out DIR]
 Without --out the Markdown goes to stdout; with --out, shadow-report.md and
 shadow-report.json are written into DIR (never into the store).
 """
@@ -229,7 +229,7 @@ def _nearest(rows, ts, window, pred=lambda r: True):
     return best
 
 
-def analyse(shadow, decisions, recall, cold_ms, match_window):
+def analyse(shadow, decisions, recall, cold_ms, match_window, idle_s=300):
     rep = {"rows": len(shadow)}
     if shadow:
         ts = [r["ts"] for r in shadow]
@@ -273,6 +273,7 @@ def analyse(shadow, decisions, recall, cold_ms, match_window):
             t["agreement"] = outgoing_agreement(called)
             t["coverage"] = coverage(rows, decisions, match_window)
         rep["by_task"][task] = t
+    rep["timing"] = timing([r for r in shadow if r["outcome"] == "provider_called"], cold_ms, idle_s)
     rep["recall_log"] = recall_summary(recall)
     return rep
 
@@ -371,6 +372,111 @@ def coverage(rows, decisions, window):
             "decision_verdicts": dist(d["verdict"] for d in chat)}
 
 
+IDLE_BUCKETS = ((0, 10, "<10 s"), (10, 60, "10-60 s"), (60, 300, "1-5 perc"),
+                (300, 1800, "5-30 perc"), (1800, None, ">=30 perc"), (None, None, "elso hivas"))
+# Half-open like the idle buckets: [lo, hi).
+BURST_BUCKETS = ((1, 2, "1"), (2, 4, "2-3"), (4, 9, "4-8"), (9, None, "9+"))
+
+
+def _bucket(value, buckets):
+    for lo, hi, name in buckets:
+        if lo is None:
+            return name if value is None else None
+        if value is not None and value >= lo and (hi is None or value < hi):
+            return name
+    return None
+
+
+def timing(called, cold_ms, idle_s):
+    """WHY A CALL WAS SLOW. Three explanations, and each has its own fix:
+      the provider fell asleep     -> an occasional wake-up call
+      too many calls at once       -> queueing or less parallelism
+      neither                      -> look at the connection (every detached
+                                      child opens its own TLS connection)
+
+    Per call, across BOTH tasks (they share the provider):
+      idle_before  seconds since the latest call from an EARLIER second ended
+                   (<=0: it was still running); a same-second burst shares it
+      same_second  calls whose job started in the same second
+      in_flight    calls running at this call's start, itself included
+
+    The row's ts is the job start in whole seconds and latency_ms times the
+    provider call alone, so start ~ ts and end ~ ts + latency: a resolution
+    of one second, which is enough to tell a 10-minute pause from a burst.
+
+    The decisive table is 2x2: long idle or not, times alone or in a burst.
+    A burst right after a long pause cannot tell the first two apart; a
+    lone call after a pause, and a burst after no pause, can."""
+    calls = sorted((r for r in called if r["latency"] is not None), key=lambda r: r["ts"])
+    per_second = {}
+    for r in calls:
+        per_second[int(r["ts"])] = per_second.get(int(r["ts"]), 0) + 1
+    max_lat = max((r["latency"] for r in calls), default=0) / 1000
+    # latest_end covers calls from EARLIER seconds only: a burst is one event,
+    # and its members must not measure their pause against each other.
+    rows, latest_end, second_end, second = [], None, None, None
+    for i, r in enumerate(calls):
+        start = r["ts"]
+        if int(start) != second:
+            if second_end is not None:
+                latest_end = second_end if latest_end is None else max(latest_end, second_end)
+            second, second_end = int(start), None
+        idle = None if latest_end is None else start - latest_end
+        # Only EARLIER calls can be running at this start (the list is sorted);
+        # a call that started in the same second but earlier in the log counts.
+        in_flight, j = 1, i - 1
+        while j >= 0 and calls[j]["ts"] >= start - max_lat:
+            e = calls[j]
+            if e["ts"] <= start < e["ts"] + e["latency"] / 1000:
+                in_flight += 1
+            j -= 1
+        end = start + r["latency"] / 1000
+        second_end = end if second_end is None else max(second_end, end)
+        rows.append({"ts": start, "task": r["task"], "ms": r["latency"], "cold": r["latency"] >= cold_ms,
+                     "idle": idle, "same_second": per_second[int(start)], "in_flight": in_flight})
+
+    def cell(sel):
+        n = len(sel)
+        c = sum(1 for x in sel if x["cold"])
+        return {"n": n, "cold": c}
+
+    long_idle = lambda x: x["idle"] is None or x["idle"] >= idle_s
+    burst = lambda x: x["same_second"] > 1 or x["in_flight"] > 1
+    grid = {
+        "hosszu_szunet_egyedul": cell([x for x in rows if long_idle(x) and not burst(x)]),
+        "hosszu_szunet_csomagban": cell([x for x in rows if long_idle(x) and burst(x)]),
+        "rovid_szunet_egyedul": cell([x for x in rows if not long_idle(x) and not burst(x)]),
+        "rovid_szunet_csomagban": cell([x for x in rows if not long_idle(x) and burst(x)]),
+    }
+    by_idle = {}
+    for _, _, name in IDLE_BUCKETS:
+        sel = [x for x in rows if _bucket(None if x["idle"] is None else max(0, x["idle"]), IDLE_BUCKETS) == name]
+        if sel:
+            by_idle[name] = cell(sel)
+    by_burst = {}
+    for _, _, name in BURST_BUCKETS:
+        sel = [x for x in rows if _bucket(x["same_second"], BURST_BUCKETS) == name]
+        if sel:
+            by_burst[name] = cell(sel)
+    by_inflight = {}
+    for _, _, name in BURST_BUCKETS:
+        sel = [x for x in rows if _bucket(x["in_flight"], BURST_BUCKETS) == name]
+        if sel:
+            by_inflight[name] = cell(sel)
+    return {
+        "calls": len(rows),
+        "idle_threshold_s": idle_s,
+        "grid": grid,
+        "by_idle": by_idle,
+        "by_same_second": by_burst,
+        "by_in_flight": by_inflight,
+        "cold_calls": [{"time": iso(x["ts"]), "task": x["task"], "ms": x["ms"],
+                        "idle_s": None if x["idle"] is None else round(x["idle"], 1),
+                        "same_second": x["same_second"], "in_flight": x["in_flight"]}
+                       for x in rows if x["cold"]][:40],
+    }
+
+
 def recall_summary(recall):
     if recall is None:
         return None
@@ -448,6 +554,30 @@ def markdown(rep, meta):
                 L.append(f"- lefedettség: a csatorna-döntésekből {c['with_shadow_row']}/{c['chat_decisions']} kapott shadow-sort"
                          f" ({c['without_shadow_row']} nem); a döntések ítélete: {_d(c['decision_verdicts'])}")
             L.append("")
+    tm = rep.get("timing")
+    if tm and tm["calls"]:
+        g = tm["grid"]
+
+        def c(x):
+            return f"{x['cold']}/{x['n']} ({_pct(x['cold'], x['n'])})" if x["n"] else "–"
+        L += ["## Miért lassú egy hívás: alvás, egyidejűség vagy egyik sem", "",
+              f"Mindkét feladat hívásai együtt ({tm['calls']}), mert ugyanazt a szolgáltatót terhelik. "
+              f"Hosszú szünet: legalább {tm['idle_threshold_s']} s az előző hívás vége óta (vagy az első hívás). "
+              "Csomag: ugyanabban a másodpercben több indult, vagy induláskor másik hívás még futott. "
+              "Felbontás: 1 s.", "",
+              "| hideg / összes | egyedül | csomagban |", "|---|---|---|",
+              f"| hosszú szünet után | {c(g['hosszu_szunet_egyedul'])} | {c(g['hosszu_szunet_csomagban'])} |",
+              f"| rövid szünet után | {c(g['rovid_szunet_egyedul'])} | {c(g['rovid_szunet_csomagban'])} |", "",
+              "Olvasat: ha csak a hosszú szünet sora hideg, a szolgáltató alszik el (ritka ébresztő hívás). "
+              "Ha csak a csomag oszlopa, az egyidejűség (sorba állítás vagy kisebb párhuzamosság). "
+              "Ha a rövid szünet utáni egyedüli hívás is gyakran hideg, egyik sem: a kapcsolatnyitást kell nézni. "
+              "A hosszú szünet utáni csomag cellája egyedül nem dönt.", "",
+              "- tétlen idő szerint: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_idle"].items()),
+              "- ugyanabban a másodpercben indult: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_same_second"].items()),
+              "- induláskor futó hívások (magával együtt): " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_in_flight"].items()),
+              "- hideg hívások: " + ("; ".join(
+                  f"{x['time']} {x['task']} {x['ms']} ms, szünet {'–' if x['idle_s'] is None else str(x['idle_s']) + ' s'}, "
+                  f"egy másodpercben {x['same_second']}, futó {x['in_flight']}" for x in tm["cold_calls"]) or "nincs"), ""]
     rs = rep.get("recall_log")
     if rs:
         L += ["## Recall-napló (az új, 6 oszlopos sorok)", ""]
@@ -473,6 +603,7 @@ def main(argv=None):
     ap.add_argument("--since")
     ap.add_argument("--cold-ms", type=int, default=9000)
     ap.add_argument("--window", type=int, default=10, help="matching window in seconds")
+    ap.add_argument("--idle-s", type=int, default=300, help="a pause at least this long counts as idle")
     ap.add_argument("--out")
     a = ap.parse_args(argv)
     try:
@@ -490,10 +621,10 @@ def main(argv=None):
         print("a shadow-napló nem olvasható: " + ("nincs ilyen fájl" if not os.path.exists(sp) else "jogosultság"),
               file=sys.stderr)
         return 2
-    rep = analyse(shadow, decisions, recall, a.cold_ms, a.window)
+    rep = analyse(shadow, decisions, recall, a.cold_ms, a.window, a.idle_s)
     meta = {"shadow": "ok", "decisions": "ok" if decisions is not None else "nem olvasható",
             "recall": "ok" if recall is not None else "nem olvasható", "bad_shadow": bad_s,
-            "cold_ms": a.cold_ms, "window": a.window}
+            "cold_ms": a.cold_ms, "window": a.window, "idle_s": a.idle_s}
     md = markdown(rep, meta)
     if a.out:
         os.makedirs(a.out, exist_ok=True)

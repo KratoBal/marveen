@@ -184,6 +184,68 @@ class CoverageIsOneToOne(unittest.TestCase):
         self.assertEqual((c["with_shadow_row"], c["without_shadow_row"]), (1, 1))
 
 
+class WhyACallWasSlow(unittest.TestCase):
+    """Sleep, concurrency, or neither -- per call, across both tasks."""
+
+    def rows(self, report):
+        return report["timing"]
+
+    def test_idle_is_measured_from_the_latest_earlier_end(self):
+        t = Store([mem(T0, "RELEVANT", True, latency=300),
+                   out(T0 + 100, latency=300),
+                   mem(T0 + 200, "RELEVANT", True, latency=5000),
+                   mem(T0 + 202, "RELEVANT", True, latency=300)]).report(cold_ms=4000)["timing"]
+        self.assertEqual(t["calls"], 4)
+        cold = t["cold_calls"]
+        self.assertEqual(len(cold), 1)
+        self.assertEqual(cold[0]["idle_s"], 99.7)          # 200 - (100 + 0.3)
+        # the call at +202 started while the 5 s call was running: overlap, in flight 2
+        self.assertEqual(t["by_in_flight"], {"1": {"n": 3, "cold": 1}, "2-3": {"n": 1, "cold": 0}})
+        self.assertEqual(t["by_idle"]["elso hivas"], {"n": 1, "cold": 0})
+        self.assertEqual(t["by_idle"]["<10 s"], {"n": 1, "cold": 0})   # the negative (overlap) idle
+
+    def test_same_second_and_in_flight_in_a_burst(self):
+        t = Store([mem(T0, "RELEVANT", True, latency=2000, rank=i) for i in range(1, 4)]).report()["timing"]
+        self.assertEqual(t["by_same_second"], {"2-3": {"n": 3, "cold": 0}})
+        self.assertEqual(t["by_in_flight"], {"1": {"n": 1, "cold": 0}, "2-3": {"n": 2, "cold": 0}})
+
+    def test_bucket_edges(self):
+        self.assertEqual(sr._bucket(3, sr.BURST_BUCKETS), "2-3")
+        self.assertEqual(sr._bucket(8, sr.BURST_BUCKETS), "4-8")
+        self.assertEqual(sr._bucket(9, sr.BURST_BUCKETS), "9+")
+        self.assertEqual(sr._bucket(300, sr.IDLE_BUCKETS), "5-30 perc")
+        self.assertEqual(sr._bucket(None, sr.IDLE_BUCKETS), "elso hivas")
+
+    def test_the_two_by_two_grid_separates_sleep_from_concurrency(self):
+        rows = [mem(T0, "RELEVANT", True, latency=12000)]                                 # first call: long idle, alone
+        rows += [mem(T0 + 1000, "RELEVANT", True, latency=12000, rank=i) for i in range(1, 5)]  # long idle, burst
+        rows += [out(T0 + 1100, latency=300)]                                              # short idle, alone
+        rows += [mem(T0 + 1120, "RELEVANT", True, latency=300, rank=i) for i in range(1, 4)]    # short idle, burst
+        g = Store(rows).report()["timing"]["grid"]
+        self.assertEqual(g, {"hosszu_szunet_egyedul": {"n": 1, "cold": 1},
+                             "hosszu_szunet_csomagban": {"n": 4, "cold": 4},
+                             "rovid_szunet_egyedul": {"n": 1, "cold": 0},
+                             "rovid_szunet_csomagban": {"n": 3, "cold": 0}})
+
+    def test_an_ended_call_is_not_in_flight_and_an_overlap_is_a_burst(self):
+        # A runs 10 s; B starts at +2 and ends at +2.3; C starts at +5: only A is still running.
+        # C is alone in its second, yet overlaps A -> it belongs to the burst column.
+        # C's latency sits exactly on the cold threshold, which counts as cold.
+        t = Store([mem(T0, "RELEVANT", True, latency=10000),
+                   mem(T0 + 2, "RELEVANT", True, latency=300),
+                   mem(T0 + 5, "RELEVANT", True, latency=9000)]).report(cold_ms=9000)["timing"]
+        c = [x for x in t["cold_calls"] if x["time"] == sr.iso(T0 + 5)]
+        self.assertEqual(len(c), 1)
+        self.assertEqual((c[0]["same_second"], c[0]["in_flight"]), (1, 2))
+        self.assertEqual(t["grid"]["rovid_szunet_csomagban"], {"n": 2, "cold": 1})
+
+    def test_only_provider_calls_count(self):
+        t = Store([mem(T0, "RELEVANT", True), mem(T0, "RELEVANT", True, outcome="disabled"),
+                   mem(T0, "RELEVANT", True, outcome="blocked_runtime_guard")]).report()["timing"]
+        self.assertEqual(t["calls"], 1)
+        self.assertEqual(t["by_same_second"], {"1": {"n": 1, "cold": 0}})
+
+
 class NoTextEverLeaves(unittest.TestCase):
     """The hard rule. Text is planted in every field a careless hook could
     fill, and in the two neighbouring logs; none of it may reach the output."""
