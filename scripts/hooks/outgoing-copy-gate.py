@@ -750,8 +750,18 @@ def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:
         # replies were never gated. Wired here as observe-only: record what the
         # gate WOULD do, feed the D-005 shadow, never block. Turning it into an
         # enforcing gate is the owner's decision, made on these numbers.
-        _record(channel, "would-deny" if problems else "allow", problems, text)
-        sys.exit(0)
+        # PARTIAL ENFORCEMENT (2026-09-28, owner's "Mehet" on the measured
+        # proposal): --enforce=PREFIX,PREFIX blocks only the problems whose
+        # text starts with one of the listed kinds; every other kind (deferral,
+        # name rule, homoglyph) stays observe-only. Measured on 1337 past
+        # Discord replies: the deferral check misfired on past-tense "reggel".
+        enforce = [p.strip() for a in sys.argv if a.startswith("--enforce=")
+                   for p in a.split("=", 1)[1].split(",") if p.strip()]
+        blocking = [p for p in problems if any(str(p).startswith(e) for e in enforce)]
+        if not blocking:
+            _record(channel, "would-deny" if problems else "allow", problems, text)
+            sys.exit(0)
+        problems = blocking
     _record(channel, "deny" if problems else "allow", problems, text)
     if problems:
         sys.stderr.write(

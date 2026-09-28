@@ -139,7 +139,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/outgoing-copy-gate.py\" --observe",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/outgoing-copy-gate.py\" --observe '--enforce=GONDOLATJEL,DUPLA KOTOJEL,HIANYZO EKEZETEK,MAGYAR SZOVEG GYAKORLATILAG EKEZET NELKUL'",
             "timeout": 15
           }
         ]
