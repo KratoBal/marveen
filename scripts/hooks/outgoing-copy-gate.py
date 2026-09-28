@@ -705,6 +705,19 @@ def _record(channel: str, verdict: str, problems=(), text: str = "") -> None:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:  # noqa: BLE001 -- logging must never alter the verdict
         pass
+    # D-005 HIDDEN shadow (PD-006): the same message, redacted in a detached
+    # child, asked of Jev on the four semantic rules only. Chat channels only,
+    # not email. The verdict above is already final; this cannot change it.
+    if channel in ("Telegram", "Discord") and text:
+        try:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), "jev"))
+            import shadow
+            shadow.submit({"task": "outgoing", "message": text,
+                           "local": {"verdict": verdict, "kinds": row.get("kinds", []),
+                                     "channel": channel}})
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:

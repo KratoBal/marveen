@@ -26,6 +26,7 @@ local verdict (the fleet's own decision, for comparison). Never text.
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -45,8 +46,11 @@ ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-1.13.0"   # pinned; old versions stop answering (memory 1883)
 POLICY = "d005-shadow-v1"
 TIMEOUT = 8
+JOB_SECONDS = 20   # redaction plus call; past this the measurement is dropped
 MAX_CANDIDATE_CHARS = 1500
 MAX_MESSAGE_CHARS = 4000
+MAX_REDACT_CHARS = 20000   # redact the whole text first, cut AFTER (nautilus 2026-09-28)
+SALT_FILE = os.path.join(STORE, ".jev-hash-salt")
 
 
 class RedactedDTO:
@@ -85,11 +89,28 @@ def _gate_green():
         return False
 
 
-def _redacted_dto(fields):
-    raw_hash = hashlib.sha256(json.dumps(fields, sort_keys=True, ensure_ascii=False)
-                              .encode()).hexdigest()[:16]
+def _salt():
+    try:
+        with open(SALT_FILE, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        salt = os.urandom(16)
+        fd = os.open(SALT_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(salt)
+        return salt
+
+
+def _redacted_dto(fields, limits):
+    """Redacts each field in full and cuts the REDACTED text to its limit:
+    a cut before redaction can split an email or a name so that no pattern
+    recognises the remaining half."""
+    raw_hash = hashlib.blake2b(json.dumps(fields, sort_keys=True, ensure_ascii=False).encode(),
+                               key=_salt(), digest_size=8).hexdigest()
     out, counts = {}, {}
     for name, value in fields.items():
+        if len(value) > MAX_REDACT_CHARS:
+            raise Blocked("blocked_too_long")
         try:
             r = redact.redact(value)
         except redact.RedactionError as e:
@@ -97,7 +118,9 @@ def _redacted_dto(fields):
         problems = redact.runtime_guard(r)
         if problems:
             raise Blocked("blocked_runtime_guard", ",".join(problems))
-        out[name] = r["text"]
+        cut = r["text"][: limits[name]]
+        cut = re.sub(r"<[A-Z_]*\d*$", "", cut)   # never send half a placeholder
+        out[name] = cut
         for k, v in r["counts"].items():
             counts[k] = counts.get(k, 0) + v
     return RedactedDTO(out, redact.REDACTION_VERSION, counts, raw_hash)
@@ -151,25 +174,51 @@ def _answers(r):
             for k, v in a.items()}
 
 
+_LOCAL_TOKEN = re.compile(r"^[A-Za-z0-9_.:-]{0,40}$")
+
+
+def _safe_local(local):
+    """The caller's own verdict, for comparison. Only numbers, booleans and
+    short code-like tokens pass; anything that could be text is dropped, so a
+    hook cannot put a message into the log by accident (nautilus 2026-09-28)."""
+    def ok(v):
+        if isinstance(v, bool) or isinstance(v, (int, float)) or v is None:
+            return True
+        return isinstance(v, str) and bool(_LOCAL_TOKEN.match(v))
+    if not isinstance(local, dict):
+        return None
+    out = {}
+    for k, v in list(local.items())[:12]:
+        if not (isinstance(k, str) and _LOCAL_TOKEN.match(k)):
+            continue
+        if isinstance(v, list):
+            v = [x for x in v if ok(x)][:10]
+        elif not ok(v):
+            continue
+        out[k] = v
+    return out
+
+
 def run_job(job):
     task = job.get("task")
     row = {"ts": int(time.time()), "task": task, "policy": POLICY,
-           "redaction_version": redact.REDACTION_VERSION, "local": job.get("local")}
+           "redaction_version": redact.REDACTION_VERSION, "local": _safe_local(job.get("local"))}
     try:
         if not _enabled():
             raise Blocked("disabled")
         if not _gate_green():
             raise Blocked("blocked_leak_gate")
         if task == "memory":
-            fields = {"query": str(job.get("query", ""))[:MAX_MESSAGE_CHARS],
-                      "candidate": str(job.get("candidate", ""))[:MAX_CANDIDATE_CHARS]}
+            fields = {"query": str(job.get("query", "")), "candidate": str(job.get("candidate", ""))}
+            limits = {"query": MAX_MESSAGE_CHARS, "candidate": MAX_CANDIDATE_CHARS}
             questions = MEMORY_Q
         elif task == "outgoing":
-            fields = {"message": str(job.get("message", ""))[:MAX_MESSAGE_CHARS]}
+            fields = {"message": str(job.get("message", ""))}
+            limits = {"message": MAX_MESSAGE_CHARS}
             questions = OUTGOING_Q
         else:
             raise Blocked("bad_task")
-        dto = _redacted_dto(fields)
+        dto = _redacted_dto(fields, limits)
         row.update(input_hash=dto.input_hash, placeholders=dto.counts)
         row["outcome"] = "provider_called"
         r, ms = _call_provider(dto, questions)
@@ -236,7 +285,16 @@ def report(since=0):
 
 if __name__ == "__main__":
     if "--job" in sys.argv:
-        run_job(json.loads(sys.stdin.read()))
+        import signal
+        job = json.loads(sys.stdin.read())
+
+        def _timeout(*_):
+            _log({"ts": int(time.time()), "task": job.get("task"), "policy": POLICY,
+                  "redaction_version": redact.REDACTION_VERSION, "outcome": "blocked_timeout"})
+            os._exit(0)
+        signal.signal(signal.SIGALRM, _timeout)
+        signal.alarm(JOB_SECONDS)
+        run_job(job)
     elif "--report" in sys.argv:
         print(json.dumps(report(), ensure_ascii=False, indent=1))
     else:

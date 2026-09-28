@@ -1,0 +1,2593 @@
+{
+ "suite_version": "hu-leak-v3",
+ "note": "Hand-written, fictional data only (no real person, account or address). A case passes when NONE of its leak strings survives in the redacted text, compared after folding (case, accents, homoglyphs). 'keep' strings are the semantics we want preserved; they are reported, not gated. v1: 50 cases by acrobot; b1-: 45 and b2-: 50 cases written blind by separate agents that never saw the redactor, 2026-09-28; b3-: 28 cases from barracuda's read-only review of r1; b4-: 50 cases written blind by a third agent, scored untuned first (8 of 50 leaked on r2). Reviewed by acrobot 2026-09-28; any edit bumps suite_version.",
+ "cases": [
+  {
+   "id": "name-accented",
+   "text": "Kovács Péter írta, hogy a szivattyú kattog.",
+   "leak": [
+    "Kovács",
+    "Péter"
+   ],
+   "keep": [
+    "szivattyú",
+    "kattog"
+   ]
+  },
+  {
+   "id": "name-unaccented",
+   "text": "Kovacs Peter irta, hogy a szivattyu kattog.",
+   "leak": [
+    "Kovacs",
+    "Peter"
+   ],
+   "keep": [
+    "szivattyu"
+   ]
+  },
+  {
+   "id": "name-lowercase-sentence-mid",
+   "text": "tegnap beszéltem Szűcs Annával a vízcseréről",
+   "leak": [
+    "Szűcs",
+    "Annával",
+    "Anna"
+   ],
+   "keep": [
+    "vízcseréről"
+   ]
+  },
+  {
+   "id": "name-inflected-given",
+   "text": "Küldd el Zsófiának és Gergőnek is az árajánlatot.",
+   "leak": [
+    "Zsófi",
+    "Gergő"
+   ],
+   "keep": [
+    "árajánlatot"
+   ]
+  },
+  {
+   "id": "name-sentence-initial-given",
+   "text": "Tünde szerint a lámpa hibás.",
+   "leak": [
+    "Tünde"
+   ],
+   "keep": [
+    "lámpa",
+    "hibás"
+   ]
+  },
+  {
+   "id": "name-sentence-initial-surname-first",
+   "text": "Hegedűs Bálint holnap jön a helyszínre.",
+   "leak": [
+    "Hegedűs",
+    "Bálint"
+   ],
+   "keep": [
+    "holnap",
+    "helyszínre"
+   ]
+  },
+  {
+   "id": "name-unlisted-surname",
+   "text": "A telepítést Wrobleczky Ottokár végezte el.",
+   "leak": [
+    "Wrobleczky",
+    "Ottokár"
+   ],
+   "keep": [
+    "telepítést"
+   ]
+  },
+  {
+   "id": "name-compound-surname",
+   "text": "Az ügyfél Nagy-Szabó Eszter, a férje Kis-Varga Tamás.",
+   "leak": [
+    "Nagy-Szabó",
+    "Eszter",
+    "Kis-Varga",
+    "Tamás"
+   ],
+   "keep": [
+    "ügyfél",
+    "férje"
+   ]
+  },
+  {
+   "id": "name-married-ne",
+   "text": "Horváthné Kiss Ilona hívott a számla miatt.",
+   "leak": [
+    "Horváthné",
+    "Horváth",
+    "Kiss",
+    "Ilona"
+   ],
+   "keep": [
+    "hívott",
+    "számla"
+   ]
+  },
+  {
+   "id": "name-honorific",
+   "text": "dr. Fehérvári Levente állatorvos megnézte a halakat.",
+   "leak": [
+    "Fehérvári",
+    "Levente"
+   ],
+   "keep": [
+    "állatorvos",
+    "halakat"
+   ]
+  },
+  {
+   "id": "name-single-midsentence-unlisted",
+   "text": "Holnap reggel Ziegenbalgot keresd a raktárban.",
+   "leak": [
+    "Ziegenbalg"
+   ],
+   "keep": [
+    "raktárban"
+   ]
+  },
+  {
+   "id": "name-homoglyph-cyrillic",
+   "text": "Kováсs Реter jelezte a hibát.",
+   "leak": [
+    "Kovács",
+    "Peter"
+   ],
+   "keep": [
+    "hibát"
+   ]
+  },
+  {
+   "id": "name-homoglyph-inside-word",
+   "text": "szólj Тóth Gábornak",
+   "leak": [
+    "Tóth",
+    "Gábor"
+   ]
+  },
+  {
+   "id": "name-in-quotes",
+   "text": "Az aláíró: „Bodnár Kristóf” (üzemvezető).",
+   "leak": [
+    "Bodnár",
+    "Kristóf"
+   ],
+   "keep": [
+    "aláíró",
+    "üzemvezető"
+   ]
+  },
+  {
+   "id": "email-plain",
+   "text": "Írj neki: peter.kovacs@pelda-ceg.hu",
+   "leak": [
+    "peter.kovacs",
+    "pelda-ceg.hu"
+   ],
+   "keep": [
+    "Írj neki"
+   ]
+  },
+  {
+   "id": "email-accented-local",
+   "text": "A cím ügyfél.kapcsolat@példa.hu, erre menjen.",
+   "leak": [
+    "ügyfél.kapcsolat",
+    "példa.hu"
+   ],
+   "keep": [
+    "erre menjen"
+   ]
+  },
+  {
+   "id": "phone-plus36",
+   "text": "Hívd a +36 30 123 4567 számon.",
+   "leak": [
+    "123 4567",
+    "30 123"
+   ]
+  },
+  {
+   "id": "phone-06-slash",
+   "text": "Telefon: 06-20/987-6543",
+   "leak": [
+    "987-6543",
+    "20/987"
+   ]
+  },
+  {
+   "id": "phone-compact",
+   "text": "tel +36701234567 vagy 06301112233",
+   "leak": [
+    "701234567",
+    "301112233"
+   ]
+  },
+  {
+   "id": "phone-landline",
+   "text": "Budapesti szám: 06 1 234 5678",
+   "leak": [
+    "234 5678"
+   ]
+  },
+  {
+   "id": "address-full",
+   "text": "A helyszín: 1134 Budapest, Kárpát utca 12/B, 3. emelet 7.",
+   "leak": [
+    "1134",
+    "Kárpát",
+    "12/B"
+   ],
+   "keep": [
+    "helyszín"
+   ]
+  },
+  {
+   "id": "address-abbrev",
+   "text": "Szállítás: 6720 Szeged, Petőfi S. sgt. 5.",
+   "leak": [
+    "6720",
+    "Szeged",
+    "Petőfi"
+   ]
+  },
+  {
+   "id": "address-ut",
+   "text": "a Váci út 188 alatt van a telephely",
+   "leak": [
+    "Váci",
+    "188"
+   ],
+   "keep": [
+    "telephely"
+   ]
+  },
+  {
+   "id": "address-ter",
+   "text": "Kossuth tér 3. előtt parkoljon.",
+   "leak": [
+    "Kossuth",
+    "tér 3"
+   ]
+  },
+  {
+   "id": "address-unaccented",
+   "text": "cim: 2040 Budaors, Szivarvany utca 4",
+   "leak": [
+    "2040",
+    "Budaors",
+    "Szivarvany"
+   ]
+  },
+  {
+   "id": "iban-spaced",
+   "text": "Utalás ide: HU42 1177 3016 1111 1018 0000 0000",
+   "leak": [
+    "1177 3016",
+    "1111 1018",
+    "HU42"
+   ]
+  },
+  {
+   "id": "iban-compact",
+   "text": "IBAN HU42117730161111101800000000 a számlán.",
+   "leak": [
+    "117730161111101800000000"
+   ]
+  },
+  {
+   "id": "bank-account-hu",
+   "text": "Bankszámla: 11773016-11111018-00000000",
+   "leak": [
+    "11773016",
+    "11111018"
+   ]
+  },
+  {
+   "id": "tax-number",
+   "text": "Adószám: 12345678-2-41, cégjegyzék rendben.",
+   "leak": [
+    "12345678-2-41",
+    "12345678"
+   ],
+   "keep": [
+    "cégjegyzék"
+   ]
+  },
+  {
+   "id": "tax-id-person",
+   "text": "adóazonosító jel: 8123456789",
+   "leak": [
+    "8123456789"
+   ]
+  },
+  {
+   "id": "ticket-id",
+   "text": "A HJ-2026-018 jegyen a szivattyú ki-be kapcsol.",
+   "leak": [
+    "HJ-2026-018",
+    "2026-018"
+   ],
+   "keep": [
+    "szivattyú"
+   ]
+  },
+  {
+   "id": "order-id",
+   "text": "A rendelés száma 104582, a számla SZ-2026/00417.",
+   "leak": [
+    "104582",
+    "00417"
+   ]
+  },
+  {
+   "id": "asset-id",
+   "text": "Az eszköz leltári szám: ACR-000912, sorozatszám SN77812345.",
+   "leak": [
+    "000912",
+    "77812345"
+   ]
+  },
+  {
+   "id": "uuid",
+   "text": "kártya 3f2b9c1e-7d4a-4e21-9b0c-5a6d7e8f9012 lezárva",
+   "leak": [
+    "3f2b9c1e",
+    "5a6d7e8f9012"
+   ],
+   "keep": [
+    "lezárva"
+   ]
+  },
+  {
+   "id": "hash-id",
+   "text": "a commit f442100 és a 5872440051 megjegyzés",
+   "leak": [
+    "f442100",
+    "5872440051"
+   ]
+  },
+  {
+   "id": "url-query-token",
+   "text": "Link: https://app.pelda.hu/share?token=abc123DEF456ghi&x=1",
+   "leak": [
+    "abc123DEF456ghi"
+   ]
+  },
+  {
+   "id": "url-signature",
+   "text": "https://s3.example.com/f.pdf?X-Amz-Signature=9f8e7d6c5b4a39281706&X-Amz-Credential=AKIAXYZ",
+   "leak": [
+    "9f8e7d6c5b4a39281706",
+    "AKIAXYZ"
+   ]
+  },
+  {
+   "id": "bearer",
+   "text": "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.sflKxwRJSMeKKF2QT4fwpM",
+   "leak": [
+    "eyJhbGciOiJIUzI1NiJ9",
+    "sflKxwRJSMeKKF2QT4fwpM"
+   ]
+  },
+  {
+   "id": "api-key-prefixed",
+   "text": "a kulcs s@@k-proj-A1b2C3d4E5f6G7h8I9j0 volt a fájlban",
+   "leak": [
+    "A1b2C3d4E5f6G7h8I9j0"
+   ]
+  },
+  {
+   "id": "github-token",
+   "text": "token: gh@@p_16C7e42F292c6912E7710c838347Ae178B4a",
+   "leak": [
+    "16C7e42F292c6912E7710c838347Ae178B4a"
+   ]
+  },
+  {
+   "id": "password-assign",
+   "text": "jelszó: Tavasz2026!kek",
+   "leak": [
+    "Tavasz2026!kek"
+   ]
+  },
+  {
+   "id": "long-random-secret",
+   "text": "a titok QmFsYXpzLXRlc3QtMTIzNDU2Nzg5MDEyMzQ1Njc4OTA van benne",
+   "leak": [
+    "QmFsYXpzLXRlc3QtMTIzNDU2Nzg5MDEyMzQ1Njc4OTA"
+   ]
+  },
+  {
+   "id": "amount-ft",
+   "text": "Az árajánlat 12 487 Ft, a kiszállás 8500 forint.",
+   "leak": [
+    "12 487",
+    "8500"
+   ],
+   "keep": [
+    "árajánlat",
+    "kiszállás"
+   ]
+  },
+  {
+   "id": "amount-eur",
+   "text": "A tétel 349,90 EUR volt.",
+   "leak": [
+    "349,90"
+   ]
+  },
+  {
+   "id": "date-iso",
+   "text": "2026-09-22 óta nem ment ki levél.",
+   "leak": [
+    "2026-09-22"
+   ],
+   "keep": [
+    "nem ment ki levél"
+   ]
+  },
+  {
+   "id": "date-hu",
+   "text": "szeptember 22-én kezdődött a hiba",
+   "leak": [
+    "szeptember 22"
+   ],
+   "keep": [
+    "kezdődött a hiba"
+   ]
+  },
+  {
+   "id": "mixed-message",
+   "text": "Szia! Luca vagyok, a 1117 Budapest, Irinyi József utca 4-20. címről írok, a +36 20 555 1234 számon elérsz, a rendelésem 88213.",
+   "leak": [
+    "Luca",
+    "1117",
+    "Irinyi",
+    "József",
+    "555 1234",
+    "88213"
+   ],
+   "keep": [
+    "címről írok",
+    "elérsz"
+   ]
+  },
+  {
+   "id": "coref-stable",
+   "text": "Kelemen Ádám hívott. Kelemen Ádám szerint a hűtő zajos.",
+   "leak": [
+    "Kelemen",
+    "Ádám"
+   ],
+   "keep": [
+    "hűtő zajos"
+   ]
+  },
+  {
+   "id": "preserve-domain",
+   "text": "Az Acropora OS szerviz menüjében a Medusa és a Jev nem érintett.",
+   "leak": [],
+   "keep": [
+    "Acropora OS",
+    "Medusa",
+    "Jev",
+    "szerviz"
+   ]
+  },
+  {
+   "id": "preserve-question-shape",
+   "text": "Mikor jön a technikus? És hozza a szűrőt is?",
+   "leak": [],
+   "keep": [
+    "Mikor jön a technikus?",
+    "hozza a szűrőt"
+   ]
+  },
+  {
+   "id": "b1-lowercase-name-chat",
+   "text": "szia, a kovacs peternel megint csopog a szivattyu, ki tudsz menni hozza?",
+   "leak": [
+    "kovacs",
+    "peter"
+   ],
+   "keep": [
+    "szivattyu",
+    "csopog",
+    "ki tudsz menni"
+   ]
+  },
+  {
+   "id": "b1-dative-nak",
+   "text": "Szóltam Horváth Annának, hogy a lámpát jövő héten cseréljük.",
+   "leak": [
+    "Horváth",
+    "Anná"
+   ],
+   "keep": [
+    "lámpát",
+    "cseréljük",
+    "jövő héten"
+   ]
+  },
+  {
+   "id": "b1-family-ek-nal",
+   "text": "Tegnap Szalayéknál voltunk, a 300 literes akváriumban algásodik a dekor.",
+   "leak": [
+    "Szalay"
+   ],
+   "keep": [
+    "akváriumban",
+    "300 literes",
+    "algásodik"
+   ]
+  },
+  {
+   "id": "b1-married-ne-diminutive",
+   "text": "Vörösmartiné Erzsike hívott, a vízcsere után bepárásodott az üveg.",
+   "leak": [
+    "Vörösmartiné",
+    "Erzsike"
+   ],
+   "keep": [
+    "vízcsere",
+    "bepárásodott",
+    "hívott"
+   ]
+  },
+  {
+   "id": "b1-possessive-name",
+   "text": "Bencze Tamás számláját még nem küldtük ki, Tamás felesége kérdezte rá.",
+   "leak": [
+    "Bencze",
+    "Tamás"
+   ],
+   "keep": [
+    "számláját",
+    "felesége",
+    "kérdezte"
+   ]
+  },
+  {
+   "id": "b1-nicknames-pile",
+   "text": "Pisti ma Katival megy a Zsuzsiékhoz, Laci meg Gabi a raktárban leltároz.",
+   "leak": [
+    "Pisti",
+    "Kati",
+    "Zsuzsi",
+    "Laci",
+    "Gabi"
+   ],
+   "keep": [
+    "raktárban",
+    "leltároz",
+    "megy a"
+   ]
+  },
+  {
+   "id": "b1-foreign-residents",
+   "text": "Nguyen Van Duc és Olena Kovalenko ma kezd nálunk, Duc viszi a szűrőket Olenának.",
+   "leak": [
+    "Nguyen",
+    "Duc",
+    "Olena",
+    "Kovalenko"
+   ],
+   "keep": [
+    "szűrőket",
+    "kezd nálunk"
+   ]
+  },
+  {
+   "id": "b1-surname-sentence-start",
+   "text": "Dobozi ma nem ér rá. Szerinte a szűrő eltömődött, de Dobozinak nem hiszek.",
+   "leak": [
+    "Dobozi"
+   ],
+   "keep": [
+    "Szerinte",
+    "szűrő",
+    "eltömődött"
+   ]
+  },
+  {
+   "id": "b1-name-is-common-word",
+   "text": "Fekete Virág írt, hogy a fekete háttérfólia leesett és virág alakú algafolt lett rajta.",
+   "leak": [
+    "Fekete Virág"
+   ],
+   "keep": [
+    "fekete háttérfólia",
+    "virág alakú",
+    "algafolt"
+   ]
+  },
+  {
+   "id": "b1-szabo-occupation",
+   "text": "Szabó Lajos, aki amúgy szabó, két akváriumot rendelt a műhelyébe.",
+   "leak": [
+    "Szabó Lajos",
+    "Lajos"
+   ],
+   "keep": [
+    "aki amúgy szabó",
+    "két akváriumot rendelt"
+   ]
+  },
+  {
+   "id": "b1-kovacs-occupation",
+   "text": "Kovács Bence, a kovács, holnapra hozza a kovácsoltvas állványt.",
+   "leak": [
+    "Kovács Bence",
+    "Bence"
+   ],
+   "keep": [
+    "a kovács,",
+    "kovácsoltvas állványt"
+   ]
+  },
+  {
+   "id": "b1-name-then-colon-comma",
+   "text": "Kerekes: a lámpa időzítője elállítódott. Mohácsi, nézd meg légyszi!",
+   "leak": [
+    "Kerekes",
+    "Mohácsi"
+   ],
+   "keep": [
+    "lámpa időzítője",
+    "elállítódott",
+    "nézd meg légyszi"
+   ]
+  },
+  {
+   "id": "b1-names-no-accents",
+   "text": "Gaspar Reka es Toth Zoltan kerte, hogy jovo kedden jojjunk a vizcserere.",
+   "leak": [
+    "Gaspar",
+    "Reka",
+    "Toth",
+    "Zoltan"
+   ],
+   "keep": [
+    "jovo kedden",
+    "jojjunk",
+    "vizcserere"
+   ]
+  },
+  {
+   "id": "b1-email-obfuscated-words",
+   "text": "az emailje levente pont baranyi kukac freemail pont hu, oda küldd az árajánlatot",
+   "leak": [
+    "levente",
+    "baranyi"
+   ],
+   "keep": [
+    "árajánlatot",
+    "küldd"
+   ]
+  },
+  {
+   "id": "b1-email-plus-subdomain",
+   "text": "Írj a k.orsos+szerviz@mail.korallkert-akva.hu címre, másolatban b_hegedus@citromail.hu.",
+   "leak": [
+    "k.orsos+szerviz@mail.korallkert-akva.hu",
+    "b_hegedus@citromail.hu",
+    "orsos",
+    "hegedus"
+   ],
+   "keep": [
+    "címre",
+    "másolatban"
+   ]
+  },
+  {
+   "id": "b1-phone-paren-and-slash",
+   "text": "Hívd a +36(30)412-7788 számot, vagy ha nem veszi fel, a 06 20/555 13 29-et.",
+   "leak": [
+    "412-7788",
+    "555 13 29"
+   ],
+   "keep": [
+    "Hívd a",
+    "nem veszi fel"
+   ]
+  },
+  {
+   "id": "b1-phone-dots",
+   "text": "tel: 06.70.318.44.92, csak délután, mert délelőtt a boltban van",
+   "leak": [
+    "318.44.92"
+   ],
+   "keep": [
+    "csak délután",
+    "a boltban van"
+   ]
+  },
+  {
+   "id": "b1-phone-words-mixed",
+   "text": "a mobilja nullahat-harmincas, hét-hét-egy 04 58, este hívd",
+   "leak": [
+    "hét-hét-egy 04 58",
+    "04 58"
+   ],
+   "keep": [
+    "mobilja",
+    "este hívd"
+   ]
+  },
+  {
+   "id": "b1-address-sugarut-floor-door",
+   "text": "Cím: 1134 Budapest, Szélvész sugárút 118. II. em. 7/b ajtó, kapukód: 2231, a nagy akvárium a nappaliban.",
+   "leak": [
+    "Szélvész sugárút 118",
+    "1134",
+    "7/b",
+    "2231"
+   ],
+   "keep": [
+    "kapukód",
+    "a nagy akvárium a nappaliban"
+   ]
+  },
+  {
+   "id": "b1-address-district-rakpart",
+   "text": "Budapest XIII. kerület, Pöttyös rakpart 3/A, 4. emelet 16. alatt lakik az ügyfél, ott szivárog a sump.",
+   "leak": [
+    "Pöttyös rakpart 3/A",
+    "4. emelet 16"
+   ],
+   "keep": [
+    "lakik az ügyfél",
+    "szivárog a sump"
+   ]
+  },
+  {
+   "id": "b1-address-korut-lakotelep",
+   "text": "Pécs, Kankalin körút 22., ill. a második medence a Gyöngyvirág lakótelep 14/C fsz. 2 alatt van.",
+   "leak": [
+    "Kankalin körút 22",
+    "Gyöngyvirág lakótelep 14/C"
+   ],
+   "keep": [
+    "második medence",
+    "alatt van"
+   ]
+  },
+  {
+   "id": "b1-address-hrsz-dulo",
+   "text": "A tavas ügyfél telephelye: Kiskunhalas, hrsz. 0412/17, a Sóskás dűlő végén, kutya van.",
+   "leak": [
+    "0412/17",
+    "Sóskás dűlő"
+   ],
+   "keep": [
+    "tavas ügyfél",
+    "kutya van"
+   ]
+  },
+  {
+   "id": "b1-address-postbox",
+   "text": "Postacím: 6001 Kecskemét, Pf. 318., oda kérik a papír számlát.",
+   "leak": [
+    "Pf. 318",
+    "6001"
+   ],
+   "keep": [
+    "Postacím",
+    "papír számlát"
+   ]
+  },
+  {
+   "id": "b1-iban-hu-with-reference",
+   "text": "Utalás: HU42 1177 3016 1111 1018 0000 0000, közlemény: SZ-2026/0412 szerviz",
+   "leak": [
+    "1177 3016 1111 1018",
+    "SZ-2026/0412"
+   ],
+   "keep": [
+    "Utalás",
+    "közlemény"
+   ]
+  },
+  {
+   "id": "b1-iban-foreign",
+   "text": "A német beszállító IBAN-ja DE89 3704 0044 0532 0130 00, az osztráké AT611904300234573201.",
+   "leak": [
+    "DE89 3704 0044 0532 0130 00",
+    "AT611904300234573201"
+   ],
+   "keep": [
+    "német beszállító",
+    "osztráké"
+   ]
+  },
+  {
+   "id": "b1-giro-account",
+   "text": "számlaszám: 10918001-00000123-45670001 (K&H), régi számla 11773016-11111018",
+   "leak": [
+    "10918001-00000123-45670001",
+    "11773016-11111018"
+   ],
+   "keep": [
+    "számlaszám",
+    "régi számla"
+   ]
+  },
+  {
+   "id": "b1-card-spaced",
+   "text": "a kártyája 4532 0151 1283 0366, lejárat 09/28, a CVC 417, de ne ezzel fizessen többet",
+   "leak": [
+    "4532 0151 1283 0366",
+    "09/28",
+    "CVC 417"
+   ],
+   "keep": [
+    "kártyája",
+    "ne ezzel fizessen"
+   ]
+  },
+  {
+   "id": "b1-tax-ids",
+   "text": "Adószám: 24681357-2-13, a magánszemély adóazonosítója 8412345670, mindkettő kell a számlára.",
+   "leak": [
+    "24681357-2-13",
+    "8412345670"
+   ],
+   "keep": [
+    "Adószám",
+    "adóazonosítója",
+    "kell a számlára"
+   ]
+  },
+  {
+   "id": "b1-taj-number",
+   "text": "TAJ szám: 123 456 788 (a munkavédelmi nyomtatványra kell az új kollégától)",
+   "leak": [
+    "123 456 788"
+   ],
+   "keep": [
+    "munkavédelmi nyomtatványra",
+    "új kollégától"
+   ]
+  },
+  {
+   "id": "b1-password-pw",
+   "text": "wifi a boltban: AkvaBolt_2G, pw: Korall!Zold77 ha a kasszagép lecsatlakozna",
+   "leak": [
+    "Korall!Zold77"
+   ],
+   "keep": [
+    "wifi a boltban",
+    "kasszagép lecsatlakozna"
+   ]
+  },
+  {
+   "id": "b1-password-a-jelszo",
+   "text": "a jelszó: kekcsiga123, a felhasználónév admin, a dashboardon kell belépni",
+   "leak": [
+    "kekcsiga123"
+   ],
+   "keep": [
+    "felhasználónév",
+    "dashboardon kell belépni"
+   ]
+  },
+  {
+   "id": "b1-json-api-key",
+   "text": "a config így néz ki: {\"api_key\":\"sk@@-live-9fQ2xLm7Tz0aBcD4eF6gH8jK\",\"endpoint\":\"/v1/tickets\"}",
+   "leak": [
+    "9fQ2xLm7Tz0aBcD4eF6gH8jK"
+   ],
+   "keep": [
+    "api_key",
+    "/v1/tickets",
+    "a config így néz ki"
+   ]
+  },
+  {
+   "id": "b1-env-lines",
+   "text": "DB_PASSWORD=Tr0pusiHal#2026\nREDIS_URL=redis://:s3cr3tPass@10.0.4.12:6379\nNODE_ENV=production",
+   "leak": [
+    "Tr0pusiHal#2026",
+    "s3cr3tPass"
+   ],
+   "keep": [
+    "DB_PASSWORD",
+    "REDIS_URL",
+    "NODE_ENV=production"
+   ]
+  },
+  {
+   "id": "b1-signed-url",
+   "text": "Letöltés: https://files.pelda-akva.hu/export/leltar.xlsx?X-Amz-Expires=3600&X-Amz-Signature=8c1f0e2d9ab34c77e1&token=q7Wm2Kx9Lp innen húzd le",
+   "leak": [
+    "8c1f0e2d9ab34c77e1",
+    "q7Wm2Kx9Lp"
+   ],
+   "keep": [
+    "Letöltés",
+    "innen húzd le"
+   ]
+  },
+  {
+   "id": "b1-bearer-and-github-token",
+   "text": "próbáld ezzel: Authorization: Bearer ey@@JhbGciOiJIUzI1NiJ9.ey@@JzdWIiOiI0MiJ9.Xk3pQ9vR2mZ8 vagy a gh@@p_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 tokennel",
+   "leak": [
+    "ey@@JhbGciOiJIUzI1NiJ9.ey@@JzdWIiOiI0MiJ9.Xk3pQ9vR2mZ8",
+    "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+   ],
+   "keep": [
+    "próbáld ezzel",
+    "tokennel"
+   ]
+  },
+  {
+   "id": "b1-amounts-hu-forms",
+   "text": "Az ár 12.500,- Ft, a szerviz bruttó 45e Ft, a nagy medence pedig 3,2 millió forint lenne.",
+   "leak": [
+    "12.500",
+    "45e",
+    "3,2 millió"
+   ],
+   "keep": [
+    "szerviz",
+    "nagy medence",
+    "lenne"
+   ]
+  },
+  {
+   "id": "b1-amounts-net-gross-eur",
+   "text": "Bruttó 189 900 Ft helyett nettó 149.528 HUF-ot írtunk, a német rész 1 240 EUR.",
+   "leak": [
+    "189 900",
+    "149.528",
+    "1 240"
+   ],
+   "keep": [
+    "Bruttó",
+    "nettó",
+    "a német rész"
+   ]
+  },
+  {
+   "id": "b1-dates-mixed-relative-kept",
+   "text": "A vízcserét 10.03.-án csináltuk, a következőt okt. 3-án, a számla kelte 2026.09.28, jövő kedden pedig lámpát cserélünk.",
+   "leak": [
+    "10.03.",
+    "okt. 3",
+    "2026.09.28"
+   ],
+   "keep": [
+    "jövő kedden",
+    "vízcserét",
+    "lámpát cserélünk"
+   ]
+  },
+  {
+   "id": "b1-dates-iso-and-spelled",
+   "text": "2026-11-05-én jön a futár, szeptember 17-én volt az utolsó szállítás, holnapután hívjuk vissza.",
+   "leak": [
+    "2026-11-05",
+    "szeptember 17"
+   ],
+   "keep": [
+    "holnapután",
+    "futár",
+    "hívjuk vissza"
+   ]
+  },
+  {
+   "id": "b1-ids-ticket-wo-asset-invoice",
+   "text": "A #HJ-2026-00417 hibajegyhez a WO-8812 munkalap és az ACR-ESZ-000315 eszköz tartozik, számla: E-KORALL-2026-1187, rendelés 100245781.",
+   "leak": [
+    "HJ-2026-00417",
+    "WO-8812",
+    "ACR-ESZ-000315",
+    "E-KORALL-2026-1187",
+    "100245781"
+   ],
+   "keep": [
+    "hibajegyhez",
+    "munkalap",
+    "eszköz tartozik"
+   ]
+  },
+  {
+   "id": "b1-product-names-vs-person",
+   "text": "A Medusa-ban és az Acropora OS-ben is fent van a Jev döntési modell, de Molnár Barbara szerint a szivattyú kártya hiányzik.",
+   "leak": [
+    "Molnár",
+    "Barbara"
+   ],
+   "keep": [
+    "Medusa",
+    "Acropora OS",
+    "Jev",
+    "szivattyú kártya hiányzik"
+   ]
+  },
+  {
+   "id": "b1-ablative-comitative-question",
+   "text": "Megkérdeznéd Juhász Gergőtől, hogy a Tunze szivattyút Rácz Dórával együtt szerelik-e be?",
+   "leak": [
+    "Juhász",
+    "Gergő",
+    "Rácz",
+    "Dór"
+   ],
+   "keep": [
+    "Megkérdeznéd",
+    "Tunze",
+    "szivattyút",
+    "szerelik-e be?"
+   ]
+  },
+  {
+   "id": "b1-hyphenated-name-agent-chat",
+   "text": "@barracuda nézd meg a Kiss-Nagy Eszter-féle ticketet, Eszternek a 2. medencéje szivárog.",
+   "leak": [
+    "Kiss-Nagy",
+    "Eszter"
+   ],
+   "keep": [
+    "@barracuda",
+    "ticketet",
+    "medencéje szivárog"
+   ]
+  },
+  {
+   "id": "b1-title-dr-and-phone",
+   "text": "dr. Lengyel-Pálfi Ágota ügyvéd kért árajánlatot, Ágota asszony a 06-1-789-4455-ön érhető el.",
+   "leak": [
+    "Lengyel-Pálfi",
+    "Ágota",
+    "789-4455"
+   ],
+   "keep": [
+    "ügyvéd",
+    "árajánlatot",
+    "érhető el"
+   ]
+  },
+  {
+   "id": "b1-lowercase-nick-no-accents",
+   "text": "zsolti mondta h a baloghek szuroje megint dugulas, vigyel uj szivacsot",
+   "leak": [
+    "zsolti",
+    "balogh"
+   ],
+   "keep": [
+    "szuroje",
+    "dugulas",
+    "uj szivacsot"
+   ]
+  },
+  {
+   "id": "b2-fwd-header-full",
+   "text": "---------- Továbbított üzenet ----------\nFeladó: Szalontai Réka <reka.szalontai@freemail.hu>\nKüldve: 2026. szeptember 14., vasárnap 21:07\nCímzett: szerviz@akvariumpont.hu\nTárgy: RE: a szivattyú megint zörög",
+   "leak": [
+    "Szalontai Réka",
+    "reka.szalontai@freemail.hu",
+    "2026. szeptember 14.",
+    "21:07",
+    "szerviz@akvariumpont.hu"
+   ],
+   "keep": [
+    "Továbbított üzenet",
+    "Tárgy:",
+    "a szivattyú megint zörög"
+   ]
+  },
+  {
+   "id": "b2-tisztelettel-footer-newline",
+   "text": "Kérem, jöjjenek ki megnézni a UV lámpát, mert nem világít.\nTisztelettel:\nHorváthné Bencze Ildikó\n+36 30 412 7788",
+   "leak": [
+    "Horváthné Bencze Ildikó",
+    "Bencze Ildikó",
+    "+36 30 412 7788"
+   ],
+   "keep": [
+    "UV lámpát",
+    "nem világít",
+    "Tisztelettel"
+   ]
+  },
+  {
+   "id": "b2-ai-note-accentless-decision",
+   "text": "Balazs dontese: a Kovacsne-fele tavat (Budaors, Szivarvany u. 12.) nem vallaljuk jovo heten, a RO viz rendszert Aquaforest sollal toltjuk.",
+   "leak": [
+    "Kovacsne",
+    "Szivarvany u. 12.",
+    "Budaors"
+   ],
+   "keep": [
+    "dontese",
+    "jovo heten",
+    "RO viz",
+    "Aquaforest"
+   ]
+  },
+  {
+   "id": "b2-mixed-english-invoice",
+   "text": "customer Kiss Aniko called re: invoice 2026/118, says the Tunze pump is still under warranty. callback at 14:30.",
+   "leak": [
+    "Kiss Aniko",
+    "2026/118",
+    "14:30"
+   ],
+   "keep": [
+    "customer",
+    "called re: invoice",
+    "Tunze pump",
+    "under warranty"
+   ]
+  },
+  {
+   "id": "b2-name-glued-to-digit",
+   "text": "Ticket#4471Tamás szerint a nitrát 50 fölött van, KH érték 6.",
+   "leak": [
+    "4471",
+    "Tamás"
+   ],
+   "keep": [
+    "nitrát",
+    "KH érték"
+   ]
+  },
+  {
+   "id": "b2-name-in-parens",
+   "text": "A fehérje-lefölözőt (Ferenczi Márk hozta vissza) kicseréltük Red Sea típusra.",
+   "leak": [
+    "Ferenczi Márk"
+   ],
+   "keep": [
+    "fehérje-lefölözőt",
+    "kicseréltük",
+    "Red Sea"
+   ]
+  },
+  {
+   "id": "b2-possessive-evanak",
+   "text": "Évának a tava tegnap este bezöldült, Gáboréknál meg a szűrő folyik.",
+   "leak": [
+    "Évának",
+    "Gáboréknál"
+   ],
+   "keep": [
+    "a tava",
+    "tegnap este",
+    "bezöldült",
+    "a szűrő folyik"
+   ]
+  },
+  {
+   "id": "b2-possessive-gaboreke",
+   "text": "a gaboreke meg mindig nem fizetett, 48 500 Ft a tartozas",
+   "leak": [
+    "gaboreke",
+    "48 500 Ft"
+   ],
+   "keep": [
+    "meg mindig nem fizetett",
+    "tartozas"
+   ]
+  },
+  {
+   "id": "b2-surname-looks-like-place",
+   "text": "Pécsi Andrea írt, hogy Szegedi Lajossal együtt jönnek a halakért.",
+   "leak": [
+    "Pécsi Andrea",
+    "Szegedi Lajossal"
+   ],
+   "keep": [
+    "írt",
+    "együtt jönnek a halakért"
+   ]
+  },
+  {
+   "id": "b2-street-is-person-name",
+   "text": "Cím: 7621 Pécs, Petőfi Sándor utca 3. II/5, a kapucsengő nem működik.",
+   "leak": [
+    "7621",
+    "Petőfi Sándor utca 3.",
+    "II/5"
+   ],
+   "keep": [
+    "a kapucsengő nem működik"
+   ]
+  },
+  {
+   "id": "b2-plate-hyphen-old",
+   "text": "A furgon (rendszám: KLM-482) a telephelyen áll, a Jev teszt holnapra csúszott.",
+   "leak": [
+    "KLM-482"
+   ],
+   "keep": [
+    "furgon",
+    "telephelyen",
+    "Jev"
+   ]
+  },
+  {
+   "id": "b2-plate-new-format",
+   "text": "szerelo az AB CD-123 kocsival megy ki, a kulcs a portan",
+   "leak": [
+    "AB CD-123"
+   ],
+   "keep": [
+    "szerelo",
+    "kocsival megy ki",
+    "portan"
+   ]
+  },
+  {
+   "id": "b2-ipv4-in-ai-note",
+   "text": "Medusa staging DB listen on 10.44.7.19:5432, prod proxy 185.112.64.201, no public exposure yet.",
+   "leak": [
+    "10.44.7.19",
+    "185.112.64.201"
+   ],
+   "keep": [
+    "Medusa",
+    "staging",
+    "proxy",
+    "no public exposure yet"
+   ]
+  },
+  {
+   "id": "b2-ssh-key-fragment",
+   "text": "authorized_keys-be felvéve: ss@@h-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHq9vWkZ3pQeL0xYt7mN2rBsC4dFgH8jK1lM5nO6pR7s balazs@macbook",
+   "leak": [
+    "AAAAC3NzaC1lZDI1NTE5AAAAIHq9vWkZ3pQeL0xYt7mN2rBsC4dFgH8jK1lM5nO6pR7s",
+    "balazs@macbook"
+   ],
+   "keep": [
+    "authorized_keys",
+    "felvéve"
+   ]
+  },
+  {
+   "id": "b2-private-key-block",
+   "text": "véletlenül bemásolta a chatbe:\n--@@---BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----\nezt azonnal cseréljük",
+   "leak": [
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW"
+   ],
+   "keep": [
+    "véletlenül bemásolta a chatbe",
+    "ezt azonnal cseréljük"
+   ]
+  },
+  {
+   "id": "b2-email-local-part-name",
+   "text": "irj a nagy.zsofia84@gmail.com cimre, o a tulaj",
+   "leak": [
+    "nagy.zsofia84@gmail.com",
+    "nagy.zsofia84"
+   ],
+   "keep": [
+    "cimre",
+    "a tulaj"
+   ]
+  },
+  {
+   "id": "b2-company-hq-line",
+   "text": "Tükörhal Kft.\nSzékhely: 2040 Budaörs, Kinizsi út 18/B.\nAdószám: 24818377-2-13\nCégjegyzékszám: 13-09-187654",
+   "leak": [
+    "Tükörhal Kft.",
+    "2040 Budaörs, Kinizsi út 18/B.",
+    "24818377-2-13",
+    "13-09-187654"
+   ],
+   "keep": [
+    "Székhely:",
+    "Adószám:"
+   ]
+  },
+  {
+   "id": "b2-company-bt-lowercase",
+   "text": "a koiponty bt-nek holnap megy ki a szamla, ugyanaz a jegy mint a mult havi",
+   "leak": [
+    "koiponty bt"
+   ],
+   "keep": [
+    "megy ki a szamla",
+    "mult havi"
+   ]
+  },
+  {
+   "id": "b2-iban-spaced",
+   "text": "Kérjük az összeget az alábbi számlára utalni: HU42 1177 3016 1111 1018 0000 0000 (OTP), közlemény: SZ-2026-0931",
+   "leak": [
+    "HU42 1177 3016 1111 1018 0000 0000",
+    "SZ-2026-0931"
+   ],
+   "keep": [
+    "Kérjük az összeget",
+    "számlára utalni",
+    "közlemény"
+   ]
+  },
+  {
+   "id": "b2-hu-bank-account-dashed",
+   "text": "szamlaszam 11600006-00000000-12345678, Rozsa Gergely nevere",
+   "leak": [
+    "11600006-00000000-12345678",
+    "Rozsa Gergely"
+   ],
+   "keep": [
+    "szamlaszam",
+    "nevere"
+   ]
+  },
+  {
+   "id": "b2-taj-and-tax",
+   "text": "Munkavállaló: Oláh Bence, TAJ: 037 529 184, adóazonosító jel: 8412345678",
+   "leak": [
+    "Oláh Bence",
+    "037 529 184",
+    "8412345678"
+   ],
+   "keep": [
+    "Munkavállaló",
+    "adóazonosító jel"
+   ]
+  },
+  {
+   "id": "b2-card-number",
+   "text": "fizetett kartyaval, 4539 1488 0343 6467, lejarat 09/28, cvc 114",
+   "leak": [
+    "4539 1488 0343 6467",
+    "114"
+   ],
+   "keep": [
+    "fizetett kartyaval",
+    "lejarat"
+   ]
+  },
+  {
+   "id": "b2-url-secret-query",
+   "text": "a webhook: https://hooks.acropora-demo.hu/in?token=f7c2e91ab04d4e8f9c33&src=discord , ne oszd meg",
+   "leak": [
+    "f7c2e91ab04d4e8f9c33"
+   ],
+   "keep": [
+    "webhook",
+    "ne oszd meg"
+   ]
+  },
+  {
+   "id": "b2-api-key-env",
+   "text": "OPENAI_API_KEY=sk@@-proj-9fKq2LmXvB7nR4tY1zWc8HdPe3JsQ6uA a .env-ben volt, kiszivárgott a logba",
+   "leak": [
+    "sk@@-proj-9fKq2LmXvB7nR4tY1zWc8HdPe3JsQ6uA"
+   ],
+   "keep": [
+    "a .env-ben volt",
+    "kiszivárgott a logba"
+   ]
+  },
+  {
+   "id": "b2-password-inline",
+   "text": "wifi jelszo a boltban: Korall2026!, a router admin pw pedig Z3ld_Tavirozsa",
+   "leak": [
+    "Korall2026!",
+    "Z3ld_Tavirozsa"
+   ],
+   "keep": [
+    "wifi jelszo a boltban",
+    "router admin"
+   ]
+  },
+  {
+   "id": "b2-appointment-date-time",
+   "text": "Molnár úrhoz szeptember 30-án 9:15-re megyünk medencetisztításra, utána jövő héten nézzük a nitrátot.",
+   "leak": [
+    "Molnár",
+    "szeptember 30-án",
+    "9:15"
+   ],
+   "keep": [
+    "medencetisztításra",
+    "jövő héten",
+    "nitrátot"
+   ]
+  },
+  {
+   "id": "b2-nickname-lowercase",
+   "text": "zsoltikanak mondd meg h a lampa megjott",
+   "leak": [
+    "zsoltikanak"
+   ],
+   "keep": [
+    "mondd meg",
+    "a lampa megjott"
+   ]
+  },
+  {
+   "id": "b2-foreign-name-ticket",
+   "text": "Hibajegy: Mr. Oliver Brandtner (Vienna) reports the Tunze Turbelle stopped. Tel: +43 664 2198 331",
+   "leak": [
+    "Oliver Brandtner",
+    "+43 664 2198 331"
+   ],
+   "keep": [
+    "Hibajegy",
+    "Tunze Turbelle",
+    "stopped"
+   ]
+  },
+  {
+   "id": "b2-layperson-ticket-typos",
+   "text": "jo napot a halaim nem esznek es a viz zavaros lett. a cimem debrecen ,kossuth u 44 . csengo kovacs. koszonom szepen Juhasz Erzsi",
+   "leak": [
+    "kossuth u 44",
+    "kovacs",
+    "Juhasz Erzsi"
+   ],
+   "keep": [
+    "a halaim nem esznek",
+    "a viz zavaros lett",
+    "koszonom szepen"
+   ]
+  },
+  {
+   "id": "b2-hrsz-plot",
+   "text": "A tó a 0312/7 hrsz ingatlanon van, Tordas külterület, tulajdonos Vass Kornélia.",
+   "leak": [
+    "0312/7",
+    "Vass Kornélia"
+   ],
+   "keep": [
+    "A tó a",
+    "ingatlanon van",
+    "külterület"
+   ]
+  },
+  {
+   "id": "b2-asset-serial-ids",
+   "text": "Eszköz: ESZ-00817, gyári szám SN: RS-MAX-9921-44B, a Red Sea REEFER-hez tartozik.",
+   "leak": [
+    "ESZ-00817",
+    "RS-MAX-9921-44B"
+   ],
+   "keep": [
+    "Eszköz",
+    "gyári szám",
+    "Red Sea"
+   ]
+  },
+  {
+   "id": "b2-order-id-discord",
+   "text": "a #U-551209 rendeles duplán jott be a medusaba",
+   "leak": [
+    "U-551209"
+   ],
+   "keep": [
+    "rendeles",
+    "duplán jott be",
+    "medusaba"
+   ]
+  },
+  {
+   "id": "b2-signature-dash-dash",
+   "text": "Köszönöm a gyors választ!\n--\nDr. Lengyel-Farkas Péter\nügyvezető | Aranyponty Zrt.\nMobil: 06-70/318-2290",
+   "leak": [
+    "Lengyel-Farkas Péter",
+    "Aranyponty Zrt.",
+    "06-70/318-2290"
+   ],
+   "keep": [
+    "Köszönöm a gyors választ",
+    "ügyvezető"
+   ]
+  },
+  {
+   "id": "b2-name-before-colon-chat",
+   "text": "Bogi: holnap nem tudok bejönni, a fehérje-lefölözőt Dani szereli be",
+   "leak": [
+    "Bogi",
+    "Dani"
+   ],
+   "keep": [
+    "nem tudok bejönni",
+    "fehérje-lefölözőt",
+    "szereli be"
+   ]
+  },
+  {
+   "id": "b2-memory-note-customer-and-money",
+   "text": "Cold memory: ugyfel Barta Gyula (Szentendre) 3x reklamalt, a kompenzacio 25 000 HUF jovairas lett, Acropora OS ticket T-2026-0412.",
+   "leak": [
+    "Barta Gyula",
+    "25 000 HUF",
+    "T-2026-0412"
+   ],
+   "keep": [
+    "Cold memory",
+    "reklamalt",
+    "jovairas",
+    "Acropora OS"
+   ]
+  },
+  {
+   "id": "b2-money-eur-and-plus-afa",
+   "text": "Az árajánlat: 1 240 000 Ft + ÁFA, vagy 3 150 EUR, a Tunze szivattyúval együtt.",
+   "leak": [
+    "1 240 000 Ft",
+    "3 150 EUR"
+   ],
+   "keep": [
+    "Az árajánlat",
+    "Tunze szivattyúval együtt"
+   ]
+  },
+  {
+   "id": "b2-reply-quote-header",
+   "text": "2026. 09. 21. 18:42 időpontban Tóth Veronika <vera.toth@citromail.hu> ezt írta:\n> a tavirózsák elrohadtak",
+   "leak": [
+    "Tóth Veronika",
+    "vera.toth@citromail.hu",
+    "2026. 09. 21.",
+    "18:42"
+   ],
+   "keep": [
+    "ezt írta",
+    "a tavirózsák elrohadtak"
+   ]
+  },
+  {
+   "id": "b2-english-outlook-header",
+   "text": "From: Hegedus, Istvan <istvan.hegedus@halas-bt.hu>\nSent: Monday, September 22, 2026 8:03 AM\nTo: Balazs\nSubject: KH ertek meres",
+   "leak": [
+    "Hegedus, Istvan",
+    "istvan.hegedus@halas-bt.hu",
+    "September 22, 2026",
+    "8:03 AM"
+   ],
+   "keep": [
+    "Subject:",
+    "KH ertek meres"
+   ]
+  },
+  {
+   "id": "b2-phone-no-spaces-in-sentence",
+   "text": "hivd a 06203334455-ot delutan, Vilma nenivel beszelj",
+   "leak": [
+    "06203334455",
+    "Vilma"
+   ],
+   "keep": [
+    "hivd a",
+    "delutan",
+    "beszelj"
+   ]
+  },
+  {
+   "id": "b2-zip-city-inline",
+   "text": "szallitas: 9024 Gyor, Nador ter 5. fsz 2, kaputelefon 12",
+   "leak": [
+    "9024",
+    "Nador ter 5.",
+    "fsz 2"
+   ],
+   "keep": [
+    "szallitas",
+    "kaputelefon"
+   ]
+  },
+  {
+   "id": "b2-invoice-and-date-ai",
+   "text": "Invoice ACR-2026/00731 kiallitva 2026-09-19, due 2026-10-03, Medusa order sync OK.",
+   "leak": [
+    "ACR-2026/00731",
+    "2026-09-19",
+    "2026-10-03"
+   ],
+   "keep": [
+    "kiallitva",
+    "Medusa order sync OK"
+   ]
+  },
+  {
+   "id": "b2-name-inside-hashtag-mention",
+   "text": "@Szabo_Kinga koszi, a Jev deploy megvan",
+   "leak": [
+    "Szabo_Kinga"
+   ],
+   "keep": [
+    "koszi",
+    "Jev deploy megvan"
+   ]
+  },
+  {
+   "id": "b2-keep-only-domain-terms",
+   "text": "A fehérje-lefölöző és a UV lámpa rendben, a nitrát 10 alatt, KH érték stabil, jövő héten RO víz csere.",
+   "leak": [],
+   "keep": [
+    "fehérje-lefölöző",
+    "UV lámpa",
+    "nitrát",
+    "KH érték",
+    "jövő héten",
+    "RO víz"
+   ]
+  },
+  {
+   "id": "b2-name-with-hyphen-suffix-accentless",
+   "text": "Nemeth-tol jott a kerdes, Farkas Aron-nal egyeztetek",
+   "leak": [
+    "Nemeth",
+    "Farkas Aron"
+   ],
+   "keep": [
+    "jott a kerdes",
+    "egyeztetek"
+   ]
+  },
+  {
+   "id": "b2-allcaps-name-footer",
+   "text": "Üdvözlettel:\nSIMON KATALIN\nKatica Díszhal Bt.\nsimon.k@katicadiszhal.hu",
+   "leak": [
+    "SIMON KATALIN",
+    "Katica Díszhal Bt.",
+    "simon.k@katicadiszhal.hu"
+   ],
+   "keep": [
+    "Üdvözlettel"
+   ]
+  },
+  {
+   "id": "b2-ip-and-password-ai",
+   "text": "coolify box 91.214.33.7, root pass: vzT8#qLr2w, ssh port 2222",
+   "leak": [
+    "91.214.33.7",
+    "vzT8#qLr2w"
+   ],
+   "keep": [
+    "coolify box",
+    "ssh port"
+   ]
+  },
+  {
+   "id": "b2-birth-date-and-mother",
+   "text": "Szül.: 1979.03.12., anyja neve: Fekete Margit, lakcím: 1113 Budapest, Bartók Béla út 61.",
+   "leak": [
+    "1979.03.12.",
+    "Fekete Margit",
+    "1113 Budapest, Bartók Béla út 61."
+   ],
+   "keep": [
+    "anyja neve",
+    "lakcím"
+   ]
+  },
+  {
+   "id": "b2-name-then-quote",
+   "text": "„Nem kell a kiszállás” – írta Varga Emese, de a tó szivattyúja tényleg halott.",
+   "leak": [
+    "Varga Emese"
+   ],
+   "keep": [
+    "Nem kell a kiszállás",
+    "írta",
+    "a tó szivattyúja tényleg halott"
+   ]
+  },
+  {
+   "id": "b2-github-token-and-name",
+   "text": "Laci tegnap este betette a gh@@p_R8mZ2xQv4LpN7tW1yK9cB3dF6hJ0sA5eU2iO tokent a repo README-be",
+   "leak": [
+    "Laci",
+    "gh@@p_R8mZ2xQv4LpN7tW1yK9cB3dF6hJ0sA5eU2iO"
+   ],
+   "keep": [
+    "tegnap este",
+    "tokent",
+    "README"
+   ]
+  },
+  {
+   "id": "b2-ticket-slash-id-and-tel-label",
+   "text": "Hibajegy #HJ-10442 (Tel.: 0036-1-555-0199) megnyitva, ugyfel: Pintér Ágoston, a KH érték 4.",
+   "leak": [
+    "HJ-10442",
+    "0036-1-555-0199",
+    "Pintér Ágoston"
+   ],
+   "keep": [
+    "Hibajegy",
+    "megnyitva",
+    "KH érték"
+   ]
+  },
+  {
+   "id": "b3-caps-names",
+   "text": "Megrendelő: KOVÁCS PÉTER, HEGEDŰS ANNA",
+   "leak": [
+    "KOVÁCS",
+    "PÉTER",
+    "HEGEDŰS",
+    "ANNA"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-caps-address",
+   "text": "Szállítási cím: KÁRPÁT UTCA 12",
+   "leak": [
+    "KÁRPÁT",
+    "UTCA 12"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-underscore-file",
+   "text": "Csatoltam a Kovacs_Peter_szamla.pdf fájlt.",
+   "leak": [
+    "Kovacs",
+    "Peter"
+   ],
+   "keep": [
+    "fájlt"
+   ]
+  },
+  {
+   "id": "b3-init-unlisted-1",
+   "text": "Bodnár szerint a lámpa hibás.",
+   "leak": [
+    "Bodnár"
+   ],
+   "keep": [
+    "lámpa hibás"
+   ]
+  },
+  {
+   "id": "b3-init-unlisted-2",
+   "text": "Milán holnap jön.",
+   "leak": [
+    "Milán"
+   ],
+   "keep": [
+    "holnap jön"
+   ]
+  },
+  {
+   "id": "b3-init-nick",
+   "text": "Laci hívott.",
+   "leak": [
+    "Laci"
+   ],
+   "keep": [
+    "hívott"
+   ]
+  },
+  {
+   "id": "b3-after-abbrev",
+   "text": "Ezt pl. Hegedűs is mondta.",
+   "leak": [
+    "Hegedűs"
+   ],
+   "keep": [
+    "is mondta"
+   ]
+  },
+  {
+   "id": "b3-label-eol",
+   "text": "Kapcsolattartó: Hegedűs",
+   "leak": [
+    "Hegedűs"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-dash-bullet",
+   "text": "- Bodnár visszahív",
+   "leak": [
+    "Bodnár"
+   ],
+   "keep": [
+    "visszahív"
+   ]
+  },
+  {
+   "id": "b3-assim-1",
+   "text": "beszéltem péterrel a számláról",
+   "leak": [
+    "péter"
+   ],
+   "keep": [
+    "számláról"
+   ]
+  },
+  {
+   "id": "b3-assim-2",
+   "text": "Gáborral egyeztettem.",
+   "leak": [
+    "Gábor"
+   ],
+   "keep": [
+    "egyeztettem"
+   ]
+  },
+  {
+   "id": "b3-assim-3",
+   "text": "tamással jössz?",
+   "leak": [
+    "tamás"
+   ],
+   "keep": [
+    "jössz"
+   ]
+  },
+  {
+   "id": "b3-family-1",
+   "text": "Kovácsékhoz megyek szerelni.",
+   "leak": [
+    "Kovács"
+   ],
+   "keep": [
+    "szerelni"
+   ]
+  },
+  {
+   "id": "b3-family-2",
+   "text": "kovácséktól jött az ajánlat",
+   "leak": [
+    "kovács"
+   ],
+   "keep": [
+    "ajánlat"
+   ]
+  },
+  {
+   "id": "b3-phone-noprefix-1",
+   "text": "Hívd a 20/555-1234 számon.",
+   "leak": [
+    "555-1234"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-phone-noprefix-2",
+   "text": "20-555-1234",
+   "leak": [
+    "555-1234"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-lower-unlisted",
+   "text": "szólj a hegedűsnek",
+   "leak": [
+    "hegedűs"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-lower-ambig-1",
+   "text": "beszéltem ritával",
+   "leak": [
+    "rita"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-lower-ambig-2",
+   "text": "mátéval megbeszéltük",
+   "leak": [
+    "máté"
+   ],
+   "keep": [
+    "megbeszéltük"
+   ]
+  },
+  {
+   "id": "b3-lower-address",
+   "text": "a petofi utca 5 alatt lakik",
+   "leak": [
+    "petofi utca 5"
+   ],
+   "keep": [
+    "lakik"
+   ]
+  },
+  {
+   "id": "b3-u-nodot",
+   "text": "a Kárpát u 12 alatt",
+   "leak": [
+    "Kárpát",
+    "u 12"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-kukac-dotdomain",
+   "text": "hegedus.bodnar kukac gmail.com",
+   "leak": [
+    "hegedus.bodnar"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-kukac-paren",
+   "text": "hegedus.bodnar (kukac) gmail pont com",
+   "leak": [
+    "hegedus.bodnar"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-id-card",
+   "text": "a személyi száma 482913KL",
+   "leak": [
+    "482913KL"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-url-path-name",
+   "text": "https://www.facebook.com/hegedus.bodnar",
+   "leak": [
+    "hegedus.bodnar"
+   ],
+   "keep": []
+  },
+  {
+   "id": "b3-zip-alone",
+   "text": "a 1134-es körzetben",
+   "leak": [
+    "1134"
+   ],
+   "keep": [
+    "körzetben"
+   ]
+  },
+  {
+   "id": "b3-monogram",
+   "text": "Hegedűs B. hívott",
+   "leak": [
+    "Hegedűs"
+   ],
+   "keep": [
+    "hívott"
+   ]
+  },
+  {
+   "id": "b3-obrien",
+   "text": "Sean O'Brien-nel egyeztettem.",
+   "leak": [
+    "Sean",
+    "Brien"
+   ],
+   "keep": [
+    "egyeztettem"
+   ]
+  },
+  {
+   "id": "b4-wa-chat-inflected-surname",
+   "text": "Zsófi holnap reggel megy Kovács Péterékhez, a lefölöző megint zajos. Hívd fel a +36 30 412 7788 számon.",
+   "leak": [
+    "Zsófi",
+    "Kovács Péter",
+    "+36 30 412 7788"
+   ],
+   "keep": [
+    "holnap reggel",
+    "lefölöző",
+    "zajos"
+   ]
+  },
+  {
+   "id": "b4-voice-email-kukac",
+   "text": "a címe nagy pont eszter kukac gmail pont com és kérte hogy csütörtökön hívjuk vissza a vízcsere miatt",
+   "leak": [
+    "nagy pont eszter",
+    "eszter kukac gmail"
+   ],
+   "keep": [
+    "vízcsere",
+    "vissza"
+   ]
+  },
+  {
+   "id": "b4-voice-phone-spelled",
+   "text": "a telefonszáma harminc négyszáztizenkettő hetvenhét nyolcvannyolc a nitrát ötven fölött volt",
+   "leak": [
+    "harminc négyszáztizenkettő hetvenhét nyolcvannyolc"
+   ],
+   "keep": [
+    "telefonszáma",
+    "nitrát",
+    "ötven fölött"
+   ]
+  },
+  {
+   "id": "b4-calendar-ek-suffix",
+   "text": "Szerda 10:00 - Németh-ék, tófeltöltés",
+   "leak": [
+    "10:00",
+    "Németh"
+   ],
+   "keep": [
+    "Szerda",
+    "tófeltöltés"
+   ]
+  },
+  {
+   "id": "b4-calendar-tol-suffix",
+   "text": "Péntek 14:30 Tóth-tól átvenni a Tunze szivattyút",
+   "leak": [
+    "14:30",
+    "Tóth"
+   ],
+   "keep": [
+    "Péntek",
+    "Tunze",
+    "szivattyút"
+   ]
+  },
+  {
+   "id": "b4-customer-review-signed",
+   "text": "Nagyon elégedett vagyok, Balogh Gergő pontosan jött és a Red Sea akvárium azóta kristálytiszta. Farkas Ildikó, Győr",
+   "leak": [
+    "Balogh Gergő",
+    "Farkas Ildikó"
+   ],
+   "keep": [
+    "Red Sea",
+    "akvárium",
+    "kristálytiszta"
+   ]
+  },
+  {
+   "id": "b4-delivery-note",
+   "text": "Szállítólevél SZL-2026/00418\nCímzett: Horváth Bence, 8200 Veszprém, Jutasi út 41. 2/5\nTétel: Aquaforest AF Salt 22 kg, 2 db\nÖsszeg: 48 990 Ft",
+   "leak": [
+    "SZL-2026/00418",
+    "Horváth Bence",
+    "Jutasi út 41",
+    "48 990 Ft"
+   ],
+   "keep": [
+    "Szállítólevél",
+    "Aquaforest",
+    "Tétel"
+   ]
+  },
+  {
+   "id": "b4-csv-customer-row",
+   "text": "ugyfel_id;nev;email;telefon\n10482;Szabó Réka;szabo.reka88@freemail.hu;06-20-555-1934",
+   "leak": [
+    "Szabó Réka",
+    "szabo.reka88@freemail.hu",
+    "06-20-555-1934"
+   ],
+   "keep": [
+    "ugyfel_id",
+    "email",
+    "telefon"
+   ]
+  },
+  {
+   "id": "b4-json-iban-amount",
+   "text": "{\"customer\":\"Mészáros Anikó\",\"iban\":\"HU42 1177 3016 1111 1018 0000 0000\",\"amount\":\"125 000 Ft\",\"note\":\"KH 7.5, RO víz\"}",
+   "leak": [
+    "Mészáros Anikó",
+    "HU42 1177 3016 1111 1018 0000 0000",
+    "125 000 Ft"
+   ],
+   "keep": [
+    "customer",
+    "KH 7.5",
+    "RO víz"
+   ]
+  },
+  {
+   "id": "b4-log-line-login",
+   "text": "2026-09-12T08:14:03Z INFO login ok user=kiss.adam@acropora.hu ip=185.43.207.19 agent=barracuda",
+   "leak": [
+    "2026-09-12T08:14:03Z",
+    "kiss.adam@acropora.hu",
+    "185.43.207.19"
+   ],
+   "keep": [
+    "INFO",
+    "login ok",
+    "barracuda"
+   ]
+  },
+  {
+   "id": "b4-git-commit-reported-by",
+   "text": "fix(ticket): Varga Dominik bejelentése alapján javítva a lefölöző státusz\n\nReported-by: Varga Dominik <dominik.varga@gmail.com>",
+   "leak": [
+    "Varga Dominik",
+    "dominik.varga@gmail.com"
+   ],
+   "keep": [
+    "lefölöző",
+    "státusz"
+   ]
+  },
+  {
+   "id": "b4-discord-quote-company",
+   "text": "> Luca írta: \"a Molnár Kft-nél holnap lesz a tó leeresztése, Szilágyi Dóra lesz ott\"\nOké, murena átnézi a munkalapot.",
+   "leak": [
+    "Luca",
+    "Molnár Kft",
+    "Szilágyi Dóra"
+   ],
+   "keep": [
+    "holnap",
+    "tó leeresztése",
+    "murena",
+    "munkalapot"
+   ]
+  },
+  {
+   "id": "b4-english-sentence-invoice",
+   "text": "Peter Kovacs asked whether the Medusa sync can run tonight; his invoice INV-2026-0931 is still open.",
+   "leak": [
+    "Peter Kovacs",
+    "INV-2026-0931"
+   ],
+   "keep": [
+    "Medusa",
+    "tonight",
+    "invoice"
+   ]
+  },
+  {
+   "id": "b4-hungarian-text-english-name-order",
+   "text": "Holnap Anna Szekeres jön a koralltelepítéshez, a Jev alapján döntünk.",
+   "leak": [
+    "Anna Szekeres"
+   ],
+   "keep": [
+    "Holnap",
+    "koralltelepítéshez",
+    "Jev"
+   ]
+  },
+  {
+   "id": "b4-double-acute-initials",
+   "text": "Őri Bálint és Fűzős Kinga kérte, hogy a nitrát mérés után szóljunk.",
+   "leak": [
+    "Őri Bálint",
+    "Fűzős Kinga"
+   ],
+   "keep": [
+    "nitrát",
+    "mérés"
+   ]
+  },
+  {
+   "id": "b4-lowercase-names-inflected",
+   "text": "ma kovács gábornál és szűcs lőrincnél voltam, a tó szivattyúja cserére szorul, holnap viszem az újat",
+   "leak": [
+    "kovács gábor",
+    "szűcs lőrinc"
+   ],
+   "keep": [
+    "tó szivattyúja",
+    "holnap"
+   ]
+  },
+  {
+   "id": "b4-uppercase-form",
+   "text": "MEGRENDELŐ: SIMON ÉVA, MUNKALAP: ML-2026-0587",
+   "leak": [
+    "SIMON ÉVA",
+    "ML-2026-0587"
+   ],
+   "keep": [
+    "MEGRENDELŐ",
+    "MUNKALAP"
+   ]
+  },
+  {
+   "id": "b4-hyphenated-surname",
+   "text": "Szent-Györgyi Albertné akváriumát kell holnap átnézni, a KH túl alacsony.",
+   "leak": [
+    "Szent-Györgyi"
+   ],
+   "keep": [
+    "akváriumát",
+    "holnap",
+    "KH"
+   ]
+  },
+  {
+   "id": "b4-particle-surname",
+   "text": "Maria de la Cruz a spanyol nagykövetségről írt a tengeri akvárium karbantartásáról.",
+   "leak": [
+    "Maria",
+    "de la Cruz"
+   ],
+   "keep": [
+    "tengeri akvárium",
+    "karbantartásáról"
+   ]
+  },
+  {
+   "id": "b4-apostrophe-surname-suffix",
+   "text": "Sean O'Brien-nel egyeztettem, jövő héten jön a Tunze pumpáért.",
+   "leak": [
+    "Sean",
+    "O'Brien"
+   ],
+   "keep": [
+    "jövő héten",
+    "Tunze"
+   ]
+  },
+  {
+   "id": "b4-family-ek-agent-name",
+   "text": "Kiss-ék tavánál a UV lámpa kiégett, polip felírta a kártyára.",
+   "leak": [
+    "Kiss"
+   ],
+   "keep": [
+    "tavánál",
+    "UV lámpa",
+    "polip"
+   ]
+  },
+  {
+   "id": "b4-nicknames",
+   "text": "Pisti bácsi megint hívott, a Zolika szerint a szivattyú zúg.",
+   "leak": [
+    "Pisti",
+    "Zolika"
+   ],
+   "keep": [
+    "szivattyú",
+    "zúg"
+   ]
+  },
+  {
+   "id": "b4-card-number",
+   "text": "A kártyaszám 4532 7153 3790 1241, lejárat 08/28, CVC 311.",
+   "leak": [
+    "4532 7153 3790 1241",
+    "08/28",
+    "311"
+   ],
+   "keep": [
+    "kártyaszám",
+    "lejárat"
+   ]
+  },
+  {
+   "id": "b4-tax-taj-ids",
+   "text": "Adószám: 12345678-2-13, TAJ: 123 456 789, adóazonosító jel: 8412345670",
+   "leak": [
+    "12345678-2-13",
+    "123 456 789",
+    "8412345670"
+   ],
+   "keep": [
+    "Adószám",
+    "TAJ"
+   ]
+  },
+  {
+   "id": "b4-license-plates",
+   "text": "A szervizautó AA BC-123 helyett ma a NKR-419 rendszámú kisbusszal megyünk a tavas ügyfélhez.",
+   "leak": [
+    "AA BC-123",
+    "NKR-419"
+   ],
+   "keep": [
+    "szervizautó",
+    "kisbusszal",
+    "tavas ügyfélhez"
+   ]
+  },
+  {
+   "id": "b4-url-query-token",
+   "text": "Webhook: https://api.acropora.hu/hooks/unas?token=s@@k_live_9fK2mQ7xLp3RvT8w&shop=main",
+   "leak": [
+    "s@@k_live_9fK2mQ7xLp3RvT8w"
+   ],
+   "keep": [
+    "Webhook"
+   ]
+  },
+  {
+   "id": "b4-git-remote-pat",
+   "text": "git remote set-url origin https://gh@@p_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8@github.com/acropora/os.git",
+   "leak": [
+    "gh@@p_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+   ],
+   "keep": [
+    "git remote set-url origin"
+   ]
+  },
+  {
+   "id": "b4-passwords-in-chat",
+   "text": "wifi jelszó a boltban: Korall2024!, a routeré admin / Nemo#Tank77",
+   "leak": [
+    "Korall2024!",
+    "Nemo#Tank77"
+   ],
+   "keep": [
+    "wifi jelszó",
+    "boltban"
+   ]
+  },
+  {
+   "id": "b4-private-key-block",
+   "text": "nautilus kulcsa a stage géphez:\n--@@---BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----",
+   "leak": [
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW"
+   ],
+   "keep": [
+    "nautilus",
+    "stage"
+   ]
+  },
+  {
+   "id": "b4-money-mixed-formats",
+   "text": "A tófeltöltés 185 000 forint volt, plusz 12.500 Ft kiszállás, euróban kb. €470.",
+   "leak": [
+    "185 000 forint",
+    "12.500 Ft",
+    "€470"
+   ],
+   "keep": [
+    "tófeltöltés",
+    "kiszállás"
+   ]
+  },
+  {
+   "id": "b4-date-time-written",
+   "text": "2026. október 3-án 9 óra 15-kor jönnek, a következő vízcsere két hét múlva.",
+   "leak": [
+    "2026. október 3",
+    "9 óra 15"
+   ],
+   "keep": [
+    "vízcsere",
+    "két hét múlva"
+   ]
+  },
+  {
+   "id": "b4-voice-date-spelled",
+   "text": "jövő kedden reggel nyolckor megyünk a nagy tóhoz aztán szeptember huszonkilencedikén délután háromkor a boltba",
+   "leak": [
+    "nyolckor",
+    "szeptember huszonkilencedikén",
+    "háromkor"
+   ],
+   "keep": [
+    "jövő kedden",
+    "nagy tóhoz",
+    "boltba"
+   ]
+  },
+  {
+   "id": "b4-ip-v4-v6",
+   "text": "A kamera 192.168.1.54 címen fut, a tavi szenzor fe80::1ff:fe23:4567:890a",
+   "leak": [
+    "192.168.1.54",
+    "fe80::1ff:fe23:4567:890a"
+   ],
+   "keep": [
+    "kamera",
+    "tavi szenzor"
+   ]
+  },
+  {
+   "id": "b4-company-forms",
+   "text": "A Zöldvíz Akvarisztika Kft. és a Halas és Társa Bt. is kért ajánlatot, a Pannon Tó Zrt. még nem.",
+   "leak": [
+    "Zöldvíz Akvarisztika Kft",
+    "Halas és Társa Bt",
+    "Pannon Tó Zrt"
+   ],
+   "keep": [
+    "ajánlatot"
+   ]
+  },
+  {
+   "id": "b4-keep-products-and-agents",
+   "text": "Az Acropora OS-ben a Medusa szinkron után a Red Sea és Aquaforest termékek jól jelennek meg; barracuda és nautilus ellenőrizte.",
+   "leak": [],
+   "keep": [
+    "Acropora OS",
+    "Medusa",
+    "Red Sea",
+    "Aquaforest",
+    "barracuda",
+    "nautilus"
+   ]
+  },
+  {
+   "id": "b4-keep-domain-measurements",
+   "text": "Vízcsere után a nitrát 5 mg/l, KH 8, RO víz TDS 0, a lefölöző fél napig ment üresben.",
+   "leak": [],
+   "keep": [
+    "Vízcsere",
+    "nitrát",
+    "5 mg/l",
+    "KH 8",
+    "RO víz",
+    "lefölöző"
+   ]
+  },
+  {
+   "id": "b4-ticket-asset-serial",
+   "text": "Hibajegy #T-20931, eszköz ESZ-00417, gyári szám SN: TNZ6095-88213A, cserélni kell a Tunze motort.",
+   "leak": [
+    "T-20931",
+    "ESZ-00417",
+    "TNZ6095-88213A"
+   ],
+   "keep": [
+    "Hibajegy",
+    "Tunze",
+    "motort"
+   ]
+  },
+  {
+   "id": "b4-order-number-cancel",
+   "text": "A 100234871 számú rendelést Fekete Lili mondta le.",
+   "leak": [
+    "100234871",
+    "Fekete Lili"
+   ],
+   "keep": [
+    "rendelést",
+    "mondta le"
+   ]
+  },
+  {
+   "id": "b4-giro-account-transfer",
+   "text": "Utalás a 11773016-01234567-00000000 számlára, közlemény: Takács Norbert karbantartás",
+   "leak": [
+    "11773016-01234567-00000000",
+    "Takács Norbert"
+   ],
+   "keep": [
+    "Utalás",
+    "karbantartás"
+   ]
+  },
+  {
+   "id": "b4-address-with-gate-code",
+   "text": "Kiszállás: Budapest, XIII. kerület, Váci út 178., 3. emelet 12. Kapukód 4417#.",
+   "leak": [
+    "Váci út 178",
+    "4417#"
+   ],
+   "keep": [
+    "Kiszállás"
+   ]
+  },
+  {
+   "id": "b4-whatsapp-export-timestamps",
+   "text": "[09:42] Réka: megjött az Aquaforest só?\n[09:43] Dani: igen, Bartha Laciéknál hagytam",
+   "leak": [
+    "09:42",
+    "09:43",
+    "Réka",
+    "Dani",
+    "Bartha Laci"
+   ],
+   "keep": [
+    "megjött",
+    "Aquaforest"
+   ]
+  },
+  {
+   "id": "b4-foreign-german-name",
+   "text": "Herr Jürgen Müller aus Wien möchte einen Teich-Service, a nagy koi tóhoz.",
+   "leak": [
+    "Jürgen Müller"
+   ],
+   "keep": [
+    "koi tóhoz"
+   ]
+  },
+  {
+   "id": "b4-title-and-double-surname",
+   "text": "Dr. Oláh-Kerekes Judit rendelőjében a váró akváriumban elpusztult két bohóchal.",
+   "leak": [
+    "Oláh-Kerekes",
+    "Judit"
+   ],
+   "keep": [
+    "akváriumban",
+    "bohóchal"
+   ]
+  },
+  {
+   "id": "b4-surname-three-suffixes",
+   "text": "Tegnap Bognárnak szóltam, aztán Bognárékkal egyeztettem, végül Bognártól kaptam meg a kulcsot.",
+   "leak": [
+    "Bognár"
+   ],
+   "keep": [
+    "Tegnap",
+    "kulcsot"
+   ]
+  },
+  {
+   "id": "b4-agent-names-vs-person",
+   "text": "polip szerint Polyák Márton fizetése elmaradt, korall pedig javasolta a korallok áthelyezését.",
+   "leak": [
+    "Polyák Márton"
+   ],
+   "keep": [
+    "polip szerint",
+    "korall pedig",
+    "korallok"
+   ]
+  },
+  {
+   "id": "b4-json-log-payment",
+   "text": "{\"ts\":\"2026-09-27 21:05:44\",\"level\":\"warn\",\"msg\":\"payment failed\",\"email\":\"ferenc.lukacs@citromail.hu\"}",
+   "leak": [
+    "2026-09-27 21:05:44",
+    "ferenc.lukacs@citromail.hu"
+   ],
+   "keep": [
+    "warn",
+    "payment failed"
+   ]
+  },
+  {
+   "id": "b4-relative-time-only",
+   "text": "Két napja cseréltük a szivattyút, jövő héten nézzük meg újra, addig napi kétszer etetés.",
+   "leak": [],
+   "keep": [
+    "Két napja",
+    "szivattyút",
+    "jövő héten",
+    "napi kétszer etetés"
+   ]
+  },
+  {
+   "id": "b4-voice-address-spelled",
+   "text": "a cím győr bajcsy zsilinszky út tizenkettő második emelet hat és a kapunál csengessen",
+   "leak": [
+    "bajcsy zsilinszky út tizenkettő"
+   ],
+   "keep": [
+    "kapunál",
+    "csengessen"
+   ]
+  },
+  {
+   "id": "b4-obfuscated-emails",
+   "text": "Írj neki: tamas.kun [at] outlook [dot] com vagy kun.tamas@proton.me",
+   "leak": [
+    "tamas.kun [at] outlook",
+    "kun.tamas@proton.me"
+   ],
+   "keep": [
+    "Írj neki"
+   ]
+  },
+  {
+   "id": "b4-phone-formats",
+   "text": "Mobil: +36-70/318-2290, vezetékes: (1) 234-5678, WhatsApp: 0036305551212",
+   "leak": [
+    "+36-70/318-2290",
+    "(1) 234-5678",
+    "0036305551212"
+   ],
+   "keep": [
+    "Mobil",
+    "vezetékes",
+    "WhatsApp"
+   ]
+  }
+ ]
+}

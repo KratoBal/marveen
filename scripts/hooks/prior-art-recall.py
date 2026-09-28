@@ -446,6 +446,30 @@ def collect(words, tok, agent):
     return hits
 
 
+def _jev_shadow(prompt, rows, ranked, outgoing):
+    """D-005 HIDDEN shadow (PD-006, 2026-09-28): ask Jev, on the side, whether
+    each candidate is relevant to the prompt. One query plus ONE candidate per
+    job, never the conversation. Everything happens in a detached child that
+    redacts first and refuses to call out unless the kill switch is on and the
+    leak gate is green; this function only hands over and returns. It changes
+    nothing that is shown or decided here, and any failure is swallowed."""
+    try:
+        sys.path.insert(0, os.path.join(INSTALL_DIR, "scripts", "jev"))
+        import shadow
+        shown = {id(r) for r in rows}
+        # the shown rows plus up to three that ranked below the cut, so the
+        # comparison covers both sides of our own choice
+        cands = list(rows) + [r for r in ranked if id(r) not in shown][:3]
+        for rank, r in enumerate(cands):
+            score, label, text, _ = r
+            shadow.submit({"task": "memory", "query": prompt, "candidate": text or "",
+                           "local": {"score": score, "store": label.split()[0], "rank": rank,
+                                     "shown": id(r) in shown,
+                                     "direction": "out" if outgoing else "in"}})
+    except Exception:  # noqa: BLE001 -- a measurement must never touch the hook
+        pass
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -524,6 +548,7 @@ def main():
     text = "\n".join(out) + "\n"
     strong = any(score > 1 for score, _, _, _ in rows)
     brake = bool(outgoing and strong and asks_something(prompt) and not already_warned(prompt))
+    _jev_shadow(prompt, rows, ranked, outgoing)
     # Columns 4-6 added 2026-09-28 (D-005 baseline): the characters actually put
     # into context, the direction, and whether the brake fired. The first three
     # columns keep their old meaning, so older readers of this file still work.

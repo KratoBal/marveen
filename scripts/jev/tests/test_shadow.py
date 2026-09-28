@@ -31,7 +31,7 @@ class Boundary(unittest.TestCase):
                     "usage": {"input_tokens": 10}}, 5
         self._orig = shadow._call_provider
         shadow._call_provider = fake
-        for f in ("jev-shadow.json", "jev-leak-gate.json", "known.json", "jev-shadow.jsonl"):
+        for f in ("jev-shadow.json", "jev-leak-gate.json", "known.json", "jev-shadow.jsonl", ".jev-hash-salt"):
             try:
                 os.remove(os.path.join(_TMP, f))
             except OSError:
@@ -117,8 +117,7 @@ class Boundary(unittest.TestCase):
 
         def weak(text, **kw):
             return {"text": text, "version": redact.REDACTION_VERSION, "counts": {}}
-        with open(os.environ["JEV_KNOWN_ENTITIES"], "w") as f:
-            json.dump({"PERSON": ["zebulon kvarc"]}, f)
+        redact.write_known_file([("PERSON", "zebulon kvarc")], os.environ["JEV_KNOWN_ENTITIES"])
         redact.redact = weak
         try:
             row = self.job(query="szólj zebulon kvarcnak? zebulon kvarc", candidate="x")
@@ -132,13 +131,46 @@ class Boundary(unittest.TestCase):
         self.assertIn("SECRET", redact.runtime_guard(weak))
         self.assertEqual(redact.runtime_guard({"text": "x", "version": "r0"}), ["version"])
 
+    def test_cut_happens_after_redaction(self):
+        self._switch(True)
+        self._green()
+        # the email straddles the 4000-char limit; cutting first would leave
+        # a fragment no pattern recognises
+        msg = "x " * 1995 + "valaki.nagyon.hosszu.cimmel@pelda-szolgaltato.hu"
+        row = shadow.run_job({"task": "outgoing", "message": msg})
+        self.assertEqual(row["outcome"], "provider_called")
+        sent = self.calls[0].fields["message"]
+        self.assertNotIn("valaki", sent)
+        self.assertNotIn("pelda", sent)
+
+    def test_local_cannot_carry_text(self):
+        self._switch(True)
+        self._green()
+        row = self.job(local={"verdict": "allow", "score": 2, "shown": True,
+                              "note": "Kovács Péter hívott", "kinds": ["em-dash", "Kovács Péter"]})
+        self.assertEqual(row["local"], {"verdict": "allow", "score": 2, "shown": True, "kinds": ["em-dash"]})
+        with open(shadow.LOG, encoding="utf-8") as f:
+            self.assertNotIn("Kovács", f.read())
+
+    def test_input_hash_is_salted(self):
+        self._switch(True)
+        self._green()
+        import hashlib
+        row = self.job()
+        plain = hashlib.sha256(json.dumps({"candidate": "a szivattyú kattog", "query": "Kovács Péter mikor jön?"},
+                                          sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        self.assertNotIn(row["input_hash"], plain)
+
     def test_provider_refuses_plain_dict(self):
         with self.assertRaises(shadow.Blocked):
             self._orig({"query": "raw"}, {})
 
     def test_known_entity_layer_masks_lowercase(self):
-        with open(os.environ["JEV_KNOWN_ENTITIES"], "w") as f:
-            json.dump({"PERSON": ["zebulon kvarc"], "ORG": ["Tükörhal Bt"]}, f)
+        redact.write_known_file([("PERSON", "zebulon kvarc"), ("ORG", "Tükörhal Bt")],
+                                os.environ["JEV_KNOWN_ENTITIES"])
+        raw = open(os.environ["JEV_KNOWN_ENTITIES"]).read()
+        self.assertNotIn("zebulon", raw)
+        self.assertEqual(oct(os.stat(os.environ["JEV_KNOWN_ENTITIES"]).st_mode & 0o777), "0o600")
         out = redact.redact("szólj zebulon kvarcnak, a tukorhal bt fizetett")["text"]
         self.assertNotIn("zebulon", out)
         self.assertNotIn("tukorhal", out.lower())
@@ -146,6 +178,7 @@ class Boundary(unittest.TestCase):
     def test_corrupt_known_file_fails_closed(self):
         with open(os.environ["JEV_KNOWN_ENTITIES"], "w") as f:
             f.write("{not json")
+        redact._KNOWN_CACHE.clear()
         with self.assertRaises(redact.RedactionError):
             redact.redact("x")
 

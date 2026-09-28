@@ -24,9 +24,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import redact  # noqa: E402
 
-SUITE = os.path.join(_HERE, "leak-suite-v1.json")
+SUITE = os.path.join(_HERE, "leak-suite.json")
 STATUS = os.environ.get("JEV_LEAK_GATE_STATUS", "/home/marveen/marveen/store/jev-leak-gate.json")
-CODE_FILES = ["redact.py", "hu-names.txt", "preserve-terms.json", "leak-suite-v1.json"]
+CODE_FILES = ["redact.py", "shadow.py", "hu-names.txt", "preserve-terms.json", "leak-suite.json"]
+OPTIONAL_FILES = [redact.COMMON_WORDS_PATH]
 
 
 def code_hash():
@@ -34,6 +35,12 @@ def code_hash():
     for f in CODE_FILES:
         with open(os.path.join(_HERE, f), "rb") as fh:
             h.update(f.encode() + b"\0" + fh.read() + b"\0")
+    for f in OPTIONAL_FILES:
+        try:
+            with open(f, "rb") as fh:
+                h.update(os.path.basename(f).encode() + b"\0" + fh.read() + b"\0")
+        except OSError:
+            h.update(os.path.basename(f).encode() + b"\0absent\0")
     return h.hexdigest()
 
 
