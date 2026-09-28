@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+# ANSWERS: Mi marad egy szovegbol, miutan a nevek, cimek, osszegek, azonositok es titkok helyere helyorzo kerult (D-005, PD-006)?
+"""Local, semantic-preserving redaction for the D-005 Jev shadow (PD-006:
+P-014 + P-015).
+
+This module is the privacy boundary: nothing may reach the TypeSafe client
+unless it went through redact() first. Two layers:
+
+  A. known entities -- exact match after normalisation (casefold, accents
+     stripped, common homoglyphs folded) against a local list that never
+     leaves the machine (store/jev-known-entities.json, gitignored);
+  B. property-based patterns -- email, phone, IBAN, tax id, URL secrets,
+     API keys, opaque identifiers, amounts, dates, addresses, and
+     person-shaped capitalised word runs.
+
+Letter classes are written out explicitly ([^\\W\\d_] with re.UNICODE)
+instead of relying on ASCII \\w or \\b assumptions: on this machine grep -P
+misses accented letters silently, and a redactor that inherits that habit
+leaks exactly the Hungarian names it exists to hide.
+
+Placeholders are stable within one call (<PERSON_1> twice for the same
+person) so coreference survives. REDACTION_VERSION must change whenever
+behaviour changes; the leak suite is bound to it.
+"""
+import json
+import os
+import re
+import unicodedata
+
+REDACTION_VERSION = "r1"
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+KNOWN_ENTITIES_PATH = os.environ.get(
+    "JEV_KNOWN_ENTITIES", "/home/marveen/marveen/store/jev-known-entities.json")
+PRESERVE_PATH = os.path.join(_HERE, "preserve-terms.json")
+GIVEN_NAMES_PATH = os.path.join(_HERE, "hu-names.txt")
+
+# Latin letter lookalikes that have been seen in our own text (Cyrillic and
+# Greek). Folding them lets the known-entity layer match a disguised name;
+# the property layer does not need it because Cyrillic capitals are letters.
+_HOMOGLYPHS = str.maketrans({
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
+    "і": "i", "ј": "j", "т": "t", "к": "k", "м": "m", "н": "h", "в": "b",
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O",
+    "Р": "P", "С": "C", "Т": "T", "Х": "X", "У": "Y", "І": "I", "Ј": "J",
+    "ο": "o", "α": "a", "ε": "e", "ι": "i", "ν": "v", "ρ": "p", "τ": "t",
+    "Α": "A", "Β": "B", "Ε": "E", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N",
+    "Ο": "O", "Ρ": "P", "Τ": "T", "Χ": "X", "Υ": "Y", "Ζ": "Z", "Η": "H",
+})
+
+L = r"[^\W\d_]"          # any Unicode letter
+UP = r"(?:[A-ZÁÉÍÓÖŐÚÜŰ]|[^\W\d_a-záéíóöőúüű])"  # uppercase-ish, incl. non-Latin capitals
+LO = r"[^\W\d_A-ZÁÉÍÓÖŐÚÜŰ]"                        # lowercase-ish letter
+
+
+def fold(s):
+    """casefold + strip accents + fold homoglyphs; used only for matching."""
+    s = unicodedata.normalize("NFKC", s).translate(_HOMOGLYPHS)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def _load_given_names():
+    try:
+        with open(GIVEN_NAMES_PATH, encoding="utf-8") as f:
+            return {fold(x) for line in f if not line.lstrip().startswith("#")
+                    for x in line.split()}
+    except OSError:
+        return set()
+
+
+PRESERVE = {fold(x) for x in _load_json(PRESERVE_PATH, [])}
+GIVEN_NAMES = _load_given_names()
+
+# Kinds that are never allowed through in any form, whatever the caller asks.
+ALWAYS_MASKED = {"SECRET", "IBAN", "TAX_ID", "BANK_ACCOUNT"}
+
+# ---------------------------------------------------------------- patterns
+# Order matters: the most specific, most dangerous shapes first, so that a
+# token inside a URL is taken as SECRET before the URL rule sees it.
+_P = []
+
+
+def _add(kind, pattern, flags=0):
+    _P.append((kind, re.compile(pattern, flags | re.UNICODE)))
+
+
+_NB = r"(?<![0-9A-Za-z])"   # no alnum on the left
+_NA = r"(?![0-9A-Za-z])"    # no alnum on the right
+
+# secrets: bearer values, vendor key prefixes, key=value assignments, JWTs
+_add("SECRET", r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}")
+_add("SECRET", r"\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|xox[abpors]|AKIA|AIza|glpat)[-_A-Za-z0-9]{10,}")
+_add("SECRET", r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+_add("SECRET", r"(?i)(?<=[?&;\s])(?:token|access_token|api[_-]?key|apikey|key|secret|password|passwd|pwd|signature|sig|auth|code|X-Amz-Signature|X-Amz-Credential)=[^\s&#]+")
+_add("SECRET", r"(?i)(?<![^\W_])(?:token|api[_-]?key|secret|password|passwd|pass|pw|pwd|jelszó|jelszo|jelszava|kulcs)\s*[:=]\s*(?P<v>\S{4,})")
+_add("SECRET", r"\b[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|KEY|PASS|PWD|AUTH|CREDENTIALS?)[A-Z0-9_]*\s*=\s*(?P<v>\S+)")
+_add("SECRET", r"(?<=://)[^\s/@:]*:[^\s/@]+(?=@)")
+_add("SECRET", r"(?i)(?<![^\W_])(?:kapukód|kapukod|ajtókód|ajtokod|riasztókód|riasztokod|kód|kod|pin|pin-kód|cvc|cvv|cvc2)\s*[:=]?\s*(?P<v>\d{3,8})(?!\d)")
+_add("SECRET", r"(?i)(?<![^\W_])(?:lejárat|lejarat|exp|érvényes|ervenyes)\s*[:=]?\s*(?P<v>\d{2}/\d{2,4})")
+_add("SECRET", r'"(?:api[_-]?key|token|secret|password|access_token|client_secret)"\s*:\s*(?P<v>"[^"]+")')
+_add("SECRET", _NB + r"(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[A-Za-z])[A-Za-z0-9+/_-]{32,}={0,2}" + _NA)
+
+# URL: keep scheme, host and path; drop query and fragment entirely
+_add("URL_QUERY", r"(?<=[A-Za-z0-9/._~-])[?#][^\s<>\"')\]]+")
+
+_add("EMAIL", r"(?i)(?<![^\W_])[^\W_][\w.-]*(?:\s+pont\s+[\w-]+)*\s+(?:kukac|at|\(at\)|\[at\])\s+[\w-]+(?:\s+pont\s+[\w-]+)+")
+_add("EMAIL", r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[^\W\d_]{2,}")
+
+_add("IBAN", r"(?i)\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]{4}){3,7}(?:[ -]?[A-Z0-9]{1,3})?\b")
+_add("BANK_ACCOUNT", _NB + r"\d{8}-\d{8}(?:-\d{8})?" + _NA)
+_add("TAX_ID", _NB + r"\d{8}-\d-\d{2}" + _NA)
+_add("TAX_ID", r"(?i)(?:adóazonosító(?: jel)?|adoazonosito(?: jel)?|adószám|adoszam|taj(?:\s*-?\s*(?:szám|szam))?)\s*[:#]?\s*(?P<v>\d[\d -]{7,13}\d)")
+
+_add("PHONE", r"(?:(?<![\w+])\+|(?<![\w\d])00)\d{2}(?:[\s/().-]*\d){8,11}" + _NA)
+_add("PHONE", _NB + r"06(?:[\s/().-]*\d){8,9}" + _NA)
+# spoken digits, alone or mixed with figures ("nullahat-harmincas, het-het-egy 04 58")
+_DW = r"(?:nulla\w*|egy|kettő|ketto|két|ket|három|harom|négy|negy|öt|ot|hat|hét|het|nyolc|kilenc|tíz\w*|tiz\w*|húsz\w*|husz\w*|harminc\w*|negyven\w*|ötven\w*|otven\w*|hatvan\w*|hetven\w*|nyolcvan\w*|kilencven\w*|száz\w*|szaz\w*|\d{1,4})"
+_add("PHONE", r"(?i)(?<![^\W_])" + _DW + r"(?:[\s,-]+" + _DW + r"){3,}(?![^\W_])")
+# three or more short digit groups: card numbers, TAJ, split phone numbers
+_add("ID", _NB + r"\d{2,4}(?:[ .]\d{2,4}){2,}" + _NA)
+
+_add("ID", r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+_add("ID", r"\b[A-Z]{1,6}-(?:19|20)\d{2}[-/]\d{1,8}\b")
+_add("ID", r"\b[A-Z]{2,6}[-/]?\d{5,}\b")
+_add("ID", r"\b(?:[A-Z]{1,6}-){1,3}[A-Z]*\d{3,}\b")
+_add("ID", r"(?<![0-9A-Za-z#])#\d{2,}\b")
+_add("ID", _NB + r"\d{5,}" + _NA)
+_add("ID", r"(?i)\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+_add("ID", r"(?i)(?<![^\W\d_])(?:rendelés|rendeles|számla|szamla|ticket|hibajegy|munkalap|megrendelés|megrendeles|order|invoice|eszköz|eszkoz|asset|leltári szám|leltari szam|sorozatszám|sorozatszam|serial)(?:szám|szam)?(?:\s+száma|\s+szama)?\s*[:#]?\s*(?P<v>(?=\S*\d)[A-Za-z0-9/-]{4,})")
+
+_add("AMOUNT", r"(?i)(?<![\w])(?:\d{1,3}(?:[ .  ]\d{3})+|\d+)(?:[.,]\d+)?(?:,-)?\s*(?:e|ezer|k|m|millió|millio|milliárd|milliard)?\.?\s*(?:Ft|HUF|forint|EUR|euró|euro|€|USD|dollár|dollar|\$)(?!\w)")
+_add("AMOUNT", r"(?i)(?:€|\$|EUR|USD|HUF)\s?\d[\d ., ]*\d")
+
+_MONTHS = r"(?:január|február|március|április|május|június|július|augusztus|szeptember|október|november|december|januar|februar|marcius|aprilis|majus|junius|julius|oktober|jan|febr|márc|marc|ápr|apr|máj|maj|jún|jun|júl|jul|aug|szept|okt|nov|dec)\.?"
+_add("DATE", r"\b(?:19|20)\d{2}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2}\.?")
+_add("DATE", r"(?i)\b(?:(?:19|20)\d{2}\.?\s+)?" + _MONTHS + r"\s+\d{1,2}(?:\.|-(?:[a-zé]+))?(?!\d)")
+_add("DATE", r"\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b")
+_add("DATE", r"(?<![\d.])(?:0?[1-9]|1[0-2])\.\s?(?:0?[1-9]|[12]\d|3[01])\.(?!\d)")
+
+_STREET = r"(?:utca|u\.|sugárút|sgt\.|sugarut|út|útja|körút|krt\.|tér|tere|köz|sor|sétány|fasor|rakpart|dűlő|lakótelep|ltp\.|park|liget|lejtő|lépcső|ut|utja|korut|ter|dulo|setany)"
+_WORDSEQ = r"(?:" + UP + L + r"*\.?(?:[ -]" + UP + L + r"*\.?){0,3})"
+_add("ADDRESS", r"(?:\b\d{4}\s+" + _WORDSEQ + r",?\s+)?(?:" + _WORDSEQ + r"|\d+\.)\s+" + _STREET + r"\s+\d+(?:[/-]?[A-Za-z]\b)?(?:[/-]\d+(?:[/-]?[A-Za-z]\b)?)?\.?(?:,?\s*(?:\d+\.\s*(?:em\.|emelet)|fszt\.?|[IVX]+\.\s*em\.?)(?:\s*\d+\.?)?(?:\s*ajtó)?)?")
+_add("ADDRESS", r"\b\d{4}\s+" + UP + LO + r"{2,}(?:[ -]" + UP + LO + r"+)?(?=,|\s+" + UP + ")")
+_add("ADDRESS", r"(?i)\bpf\.?\s*\d{1,5}\b")
+_add("ADDRESS", r"(?i)\bhrsz\.?\s*:?\s*\d[\d/]*")
+_add("ADDRESS", r"(?i)\b(?:[IVX]{1,5}|[1-9]|1\d|2[0-3])\.\s*(?:kerület|kerulet|ker\.)")
+
+# Person-shaped: honorific + name, or a run of 2..4 capitalised words
+_HON = r"(?:dr\.|Dr\.|ifj\.|id\.|özv\.|prof\.|Prof\.|Mr\.|Mrs\.|Ms\.)"
+_NAMEWORD = UP + LO + r"+(?:-" + UP + LO + r"+)?"
+_add("PERSON", _HON + r"\s+" + _NAMEWORD + r"(?:\s+" + _NAMEWORD + r"){0,3}")
+_add("PERSON", r"(?<![\w-])" + _NAMEWORD + r"(?:\s+" + _NAMEWORD + r"){1,3}(?:né)?(?![\w])")
+
+
+class RedactionError(Exception):
+    pass
+
+
+def _load_known():
+    """Known-entity list: {"PERSON": [...], "ORG": [...], "ADDRESS": [...],
+    "EMAIL": [...], "PHONE": [...], "ID": [...]}. Missing file is allowed
+    (layer B still runs); a corrupt file is not -- fail closed."""
+    if not os.path.exists(KNOWN_ENTITIES_PATH):
+        return []
+    data = _load_json(KNOWN_ENTITIES_PATH, None)
+    if not isinstance(data, dict):
+        raise RedactionError("known-entity file unreadable")
+    out = []
+    for kind, items in data.items():
+        for it in items or []:
+            if isinstance(it, str) and len(fold(it)) >= 3:
+                out.append((kind, it))
+    # longest first so "Kovács Péter Pál" wins over "Kovács Péter"
+    out.sort(key=lambda x: -len(x[1]))
+    return out
+
+
+def _folded_index(text):
+    """Folded text plus a map from folded offsets back to original offsets.
+    Folding can change length (NFKD, ligatures), so it goes char by char."""
+    folded, back = [], []
+    for i, ch in enumerate(text):
+        f = fold(ch) if not ch.isspace() else " "
+        for c in f:
+            folded.append(c)
+            back.append(i)
+    back.append(len(text))
+    return "".join(folded), back
+
+
+def _is_preserved(span_text):
+    f = fold(span_text)
+    if f in PRESERVE:
+        return True
+    words = f.split()
+    return bool(words) and all(w in PRESERVE for w in words)
+
+
+def _sentence_initial(text, start):
+    j = start - 1
+    while j >= 0 and text[j] in " \t\"'„(“":
+        j -= 1
+    return j < 0 or text[j] in ".!?:\n•-*>"
+
+
+def _find_spans(text, known):
+    spans = []   # (start, end, kind)
+    # layer A: known entities, matched on the folded text with word edges
+    if known:
+        ftext, back = _folded_index(text)
+        for kind, ent in known:
+            fe = fold(ent)
+            for m in re.finditer(_known_rx(fe), ftext):
+                spans.append((back[m.start()], back[m.end() - 1] + 1, kind.upper()))
+    # layer B: property patterns
+    for kind, rx in _P:
+        for m in rx.finditer(text):
+            s, e = (m.start("v"), m.end("v")) if "v" in rx.groupindex else (m.start(), m.end())
+            if e <= s:
+                continue
+            if kind == "PERSON":
+                span = _person_span(text, s, e)
+                if span:
+                    spans.append((span[0], span[1], kind))
+                continue
+            spans.append((s, e, kind))
+    # single capitalised words. A listed name (given name or common surname,
+    # inflected or not) is a PERSON anywhere. Any other capitalised word
+    # INSIDE a sentence is a proper noun in Hungarian orthography (person,
+    # place, company); unless it is a preserved domain term, it is masked as
+    # PROPER. This is the property rule; the list only sharpens the label.
+    proper_stems = set()
+    initial = []
+    for m in re.finditer(r"(?<![\w-])" + UP + L + r"+(?:-" + UP + L + r"+)?(?![\w])", text):
+        w = m.group(0)
+        if _is_preserved(w) or not any(c.islower() for c in w):
+            continue
+        base = fold(w)
+        if _is_name(base):
+            spans.append((m.start(), m.end(), "PERSON"))
+        elif not _sentence_initial(text, m.start()):
+            if base not in _OPENERS:
+                spans.append((m.start(), m.end(), "PROPER"))
+                proper_stems.add(_stem(base))
+        elif base not in _OPENERS:
+            initial.append(m)
+    # a sentence-initial capitalised word is masked when (a) it is addressed or
+    # labelled ("Mohácsi, nézd", "Kerekes: a lámpa"), (b) the same stem shows
+    # up as a proper noun elsewhere ("Dobozi ma ... de Dobozinak"), or (c) it
+    # has the -i/-y surname shape of an unlisted family name.
+    for m in initial:
+        w, base = m.group(0), fold(m.group(0))
+        nxt = text[m.end():m.end() + 1]
+        if nxt in (",", ":") and base not in _LABELS \
+                or _stem(base) in proper_stems \
+                or (len(base) >= 5 and base[-1] in "iy" and base not in _COMMON_I):
+            spans.append((m.start(), m.end(), "PROPER"))
+    # lowercase names from the list (chat style: "a kovacs peternel"), except
+    # names that are also ordinary words and would wreck the sentence
+    for m in re.finditer(r"(?<![^\W_])" + LO + r"{3,}(?![^\W_])", text):
+        base = fold(m.group(0))
+        if base in _OPENERS:
+            continue
+        if base in _AMBIGUOUS or _stem(base) in _AMBIGUOUS:
+            # an everyday word that is also a surname counts only next to
+            # another name: "a kovacs peternel" yes, "a kovacs szerint" no
+            nb = re.findall(r"[^\W\d_]+", text[m.end():m.end() + 30])[:1] + \
+                re.findall(r"[^\W\d_]+", text[max(0, m.start() - 30):m.start()])[-1:]
+            if any(_is_name(fold(x)) and fold(x) not in _AMBIGUOUS for x in nb):
+                spans.append((m.start(), m.end(), "PERSON"))
+            continue
+        if _is_name(base):
+            spans.append((m.start(), m.end(), "PERSON"))
+    return spans
+
+
+def _is_name(base):
+    return base in GIVEN_NAMES or _strip_suffix(base) in GIVEN_NAMES
+
+
+def _stem(base):
+    for suf in _SUFFIXES:
+        f = fold(suf)
+        if base.endswith(f) and len(base) - len(f) >= 3:
+            return base[: -len(f)]
+    return base
+
+
+# Label words that may open a line with a colon or comma without being a name.
+_LABELS = {fold(w) for w in """cím cim tel telefon email e-mail mobil fax megjegyzés megjegyzes fontos
+kérdés kerdes válasz valasz ügyfél ugyfel tárgy targy helyszín helyszin szállítás szallitas link összeg
+osszeg dátum datum határidő hatarido státusz statusz állapot allapot eredmény eredmeny hiba teendő teendo
+szia sziasztok helló hello igen nem oké oke ok persze rendben figyelj nézd nezd szóval szoval tehát tehat
+megrendelő megrendelo címzett cimzett feladó felado számla szamla rendelés rendeles bankszámla bankszamla
+adószám adoszam iban wifi jelszó jelszo kód kod név nev postacím postacim utalás utalas letöltés letoltes
+közlemény kozlemeny székhely szekhely feladó küldve kuldve""".split()}
+
+# Sentence-initial words ending in -i/-y that are ordinary Hungarian.
+_COMMON_I = {fold(w) for w in """mindenki valaki senki bárki barki akárki akarki semmi valami bármi barmi
+tegnapi holnapi mai reggeli esti délutáni delutani heti havi napi régi regi új uj utolsó utolso
+jövő heti következő kovetkezo előző elozo korábbi korabbi mostani akkori tavalyi idei szombati vasárnapi
+hétfői hetfoi keddi szerdai csütörtöki csutortoki pénteki penteki budapesti szegedi debreceni
+tengeri édesvízi edesvizi magyari angoli nagyi anyuci apuci ami ahol aki""".split()}
+
+# Listed names that are also everyday words; matched only when capitalised.
+_AMBIGUOUS = {fold(w) for w in """nagy kis kiss fekete fehér feher szabó szabo kovács kovacs magyar török torok
+király kiraly pap papp katona simon antal virág virag sándor sandor balázs balazs pál pal vörös voros
+lengyel orosz jakab máté mate boros hegyi somogyi soós soos deák deak halász halasz vass fazekas
+takács takacs juhász juhasz molnár molnar farkas varga lukács lukacs biró biro kelemen gál gal
+márk mark erika laura rita hanna dóra dora""".split()}
+
+
+# Capitalised only because they open a sentence. Stripped from the FRONT of
+# a person-shaped run; everything else in the run stays masked. The safe
+# direction is over-masking: a surname at sentence start ("Kovács Péter
+# írta") must not survive because "Kovács" is not a given name.
+_OPENERS = {fold(w) for w in """a az egy ez ezt ezek azt azok ma tegnap holnap most ha de és es
+mert hogy mikor amikor igen nem van volt lesz kérem kerem kérlek kerlek szia helló hello
+jó jo rendben köszi koszi köszönöm koszonom ugye tehát tehat viszont szerintem szerinted
+tudod látod lasd lásd holnapután reggel este délután delutan hétfőn kedden szerdán
+csütörtökön pénteken szombaton vasárnap múlt mult jövő jovo itt ott innen onnan
+nálunk nalunk nekem neked neki nekünk nektek nekik mi ti ők ok én en te ő o""".split()}
+
+
+def _person_span(text, s, e):
+    """Decide what part of a capitalised run is a person. Returns (s, e) or
+    None. Preserved domain terms (product, project, agent names) are kept;
+    a sentence-opening function word is trimmed; the rest is masked."""
+    frag = text[s:e]
+    if frag[:1].islower() or frag.split()[0].rstrip(".") in ("dr", "Dr", "ifj", "id", "özv", "prof", "Prof", "Mr", "Mrs", "Ms"):
+        return (s, e)
+    words = list(re.finditer(r"\S+", frag))
+    while words and fold(words[0].group(0)) in _OPENERS:
+        words.pop(0)
+    while words and _is_preserved(words[0].group(0)):
+        words.pop(0)
+    while words and _is_preserved(words[-1].group(0)):
+        words.pop()
+    if not words:
+        return None
+    if len(words) == 1:
+        # one word left: the given-name pass decides, not this rule
+        return None
+    return (s + words[0].start(), s + words[-1].end())
+
+
+# Hungarian inflection: "Péternek", "Annától", "Kovácséknál". Only used to
+# decide whether a single capitalised word is a given name, never to trim.
+_SUFFIXES = sorted("""nak nek val vel ban ben ba be ból ből ról ről ra re ról tól től hoz hez höz
+nál nél ig ért ként kor ot et öt at t on en ön n é ék éknál éknek éké nál ét ja je a e i""".split(),
+                   key=len, reverse=True)
+
+
+def _strip_suffix(w):
+    for suf in _SUFFIXES:
+        s = fold(suf)
+        if w.endswith(s) and len(w) - len(s) >= 3:
+            cand = w[: -len(s)]
+            if cand in GIVEN_NAMES:
+                return cand
+            # Péter -> Pétert / Anna -> Annát (lengthened final vowel)
+            if cand + "a" in GIVEN_NAMES:
+                return cand + "a"
+            if cand + "e" in GIVEN_NAMES:
+                return cand + "e"
+    return w
+
+
+def _known_rx(folded_entity):
+    """A known entity plus an optional Hungarian case ending ("kvarcnak",
+    "Annát" folds to "annat"), bounded by non-letters on both sides."""
+    sufs = "|".join(sorted({fold(x) for x in _SUFFIXES} | {"t", "val", "vel"}, key=len, reverse=True))
+    return r"(?<![^\W_])" + re.escape(folded_entity) + r"(?:" + sufs + r")?(?![^\W_])"
+
+
+def _merge(spans):
+    """Overlaps resolve to the widest span; on equal width, the more
+    sensitive kind (ALWAYS_MASKED first) wins."""
+    rank = {k: i for i, k in enumerate(["SECRET", "IBAN", "BANK_ACCOUNT", "TAX_ID", "EMAIL",
+                                        "PHONE", "URL_QUERY", "ADDRESS", "PERSON", "ORG", "PROPER",
+                                        "ID", "AMOUNT", "DATE"])}
+    spans = sorted(spans, key=lambda x: (x[0], -(x[1] - x[0]), rank.get(x[2], 99)))
+    out = []
+    for s, e, k in spans:
+        if out and s < out[-1][1]:
+            ps, pe, pk = out[-1]
+            if e > pe:
+                # extend; keep the more sensitive kind
+                k2 = pk if rank.get(pk, 99) <= rank.get(k, 99) else k
+                out[-1] = (ps, e, k2)
+            continue
+        out.append((s, e, k))
+    return out
+
+
+def redact(text, *, keep_dates=False):
+    """Returns {"text", "version", "counts"}. Raises RedactionError on any
+    internal failure: the caller must then drop the item, never fall back
+    to the raw text."""
+    if not isinstance(text, str):
+        raise RedactionError("input is not text")
+    try:
+        text = unicodedata.normalize("NFC", text)
+        known = _load_known()
+        spans = _find_spans(text, known)
+        if keep_dates:
+            spans = [s for s in spans if s[2] != "DATE"]
+        spans = _merge(spans)
+        mapping, counts, out, pos = {}, {}, [], 0
+        for s, e, kind in spans:
+            out.append(text[pos:s])
+            if kind == "URL_QUERY":
+                out.append("")
+                counts[kind] = counts.get(kind, 0) + 1
+            else:
+                key = (kind, fold(text[s:e]))
+                if key not in mapping:
+                    counts[kind] = counts.get(kind, 0) + 1
+                    mapping[key] = f"<{kind}_{counts[kind]}>"
+                out.append(mapping[key])
+            pos = e
+        out.append(text[pos:])
+        return {"text": "".join(out), "version": REDACTION_VERSION, "counts": counts}
+    except RedactionError:
+        raise
+    except Exception as e:  # any bug in here is a boundary failure
+        raise RedactionError(f"redaction failed: {type(e).__name__}") from None
+
+
+def runtime_guard(redacted):
+    """Last net right before the provider call (ACD-011 point 4). Returns a
+    list of problem kinds; empty means pass. It re-runs only the
+    always-masked patterns and the raw known-entity scan: a second full
+    redaction would just agree with the first one."""
+    problems = []
+    if not isinstance(redacted, dict) or redacted.get("version") != REDACTION_VERSION:
+        return ["version"]
+    t = redacted.get("text")
+    if not isinstance(t, str):
+        return ["text"]
+    for kind, rx in _P:
+        if kind in ALWAYS_MASKED or kind in ("EMAIL", "PHONE"):
+            if rx.search(t):
+                problems.append(kind)
+    known = _load_known()
+    if known:
+        ft = fold(t)
+        for kind, ent in known:
+            if re.search(_known_rx(fold(ent)), ft):
+                problems.append("KNOWN_" + kind.upper())
+                break
+    return sorted(set(problems))
+
+
+if __name__ == "__main__":
+    import sys
+    r = redact(sys.stdin.read())
+    print(json.dumps(r, ensure_ascii=False, indent=1))

@@ -1,0 +1,25 @@
+# Common Hungarian given names and surnames. Only sharpens the label
+# (PERSON vs PROPER) and catches a sentence-initial single name; the
+# property rule in redact.py masks unlisted proper nouns anyway.
+# given names
+Ádám András Anna Anikó Andrea Ágnes Ákos Attila Balázs Barbara Bálint Bence Beáta Bernadett
+Csaba Csilla Dániel Dávid Dóra Edit Endre Emese Erika Erzsébet Eszter Éva Ferenc Fanni Flóra
+Gábor Gergely Gergő Gyula György Győző Hajnalka Henrik Ildikó Ilona Imre István Ivett Izabella
+János Judit Julianna Júlia Katalin Kata Kinga Klára Kornél Krisztián Krisztina Lajos László
+Laura Lili Lilla Luca Levente Márk Márton Mária Marianna Máté Melinda Mihály Miklós Mónika
+Nándor Nikolett Noémi Norbert Nóra Orsolya Ottó Pál Patrik Péter Petra Piroska Rita Richárd
+Róbert Roland Rozália Sándor Sára Szabolcs Szilvia Szilárd Tamás Tibor Tímea Tünde Viktor
+Viktória Vilmos Virág Zita Zoltán Zsófia Zsófi Zsolt Zsuzsanna Zsuzsa Kristóf Botond Benedek
+Boglárka Dorina Emma Hanna Jázmin Kitti Liliána Réka Vivien Zalán Olivér Marcell Dominik
+# surnames
+Nagy Kovács Tóth Szabó Horváth Varga Kiss Molnár Németh Farkas Balogh Papp Takács Juhász
+Lakatos Mészáros Oláh Simon Rácz Fekete Szilágyi Török Fehér Balázs Gál Kis Szűcs Kocsis
+Orsós Pintér Fodor Szalai Sipos Magyar Lukács Gulyás Biró Király Katona László Jakab Bogdán
+Balog Sándor Boros Fazekas Kelemen Antal Orosz Somogyi Fülöp Veres Budai Vincze Hegedűs Deák
+Pap Bálint Pál Illés Vörös Vass Soós Fábián Lengyel Bognár Jónás Szekeres Hajdu Halász Máté
+Székely Kozma Pásztor Bakó Heller Dudás Berki Csizmadia Hegyi Kálmán Barta Borsos Csonka
+# nicknames and diminutives
+Pisti Kati Zsuzsi Laci Gabi Zsolti Feri Jóska Józsi Gyuri Bandi Sanyi Pali Peti Dani Tomi Robi Zoli
+Misi Marci Andi Bea Évi Moni Niki Szilvi Kriszti Erzsi Marika Juci Ili Ancsa Dóri Tibi Csabi Viki
+Ricsi Norbi Lali Ati Attis Ádi Bogi Fanni Lilla Kinga Rozi Timi Vera Zsófi Kitti Enikő Edina Vivi
+Karcsi Imi Lacika Gergő Bálint Pityu Öcsi Zsolti Szabi Tomika Petya
