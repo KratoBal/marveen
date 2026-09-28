@@ -372,7 +372,9 @@ def coverage(rows, decisions, window):
             "decision_verdicts": dist(d["verdict"] for d in chat)}
 
 
-IDLE_BUCKETS = ((0, 10, "<10 s"), (10, 60, "10-60 s"), (60, 300, "1-5 perc"),
+# A NEGATIVE idle is not a short pause: a call from an earlier second was still
+# RUNNING when this one started. It gets its own bucket, never "<10 s".
+IDLE_BUCKETS = ((float("-inf"), 0, "atfedes"), (0, 10, "<10 s"), (10, 60, "10-60 s"), (60, 300, "1-5 perc"),
                 (300, 1800, "5-30 perc"), (1800, None, ">=30 perc"), (None, None, "elso hivas"))
 # Half-open like the idle buckets: [lo, hi).
 BURST_BUCKETS = ((1, 2, "1"), (2, 4, "2-3"), (4, 9, "4-8"), (9, None, "9+"))
@@ -450,7 +452,7 @@ def timing(called, cold_ms, idle_s):
     }
     by_idle = {}
     for _, _, name in IDLE_BUCKETS:
-        sel = [x for x in rows if _bucket(None if x["idle"] is None else max(0, x["idle"]), IDLE_BUCKETS) == name]
+        sel = [x for x in rows if _bucket(x["idle"], IDLE_BUCKETS) == name]
         if sel:
             by_idle[name] = cell(sel)
     by_burst = {}
@@ -472,6 +474,7 @@ def timing(called, cold_ms, idle_s):
         "by_in_flight": by_inflight,
         "cold_calls": [{"time": iso(x["ts"]), "task": x["task"], "ms": x["ms"],
                         "idle_s": None if x["idle"] is None else round(x["idle"], 1),
+                        "overlap": x["idle"] is not None and x["idle"] < 0,
                         "same_second": x["same_second"], "in_flight": x["in_flight"]}
                        for x in rows if x["cold"]][:40],
     }
@@ -490,6 +493,14 @@ def recall_summary(recall):
 # ------------------------------------------------------------- output
 def _pct(n, d):
     return "–" if not d else f"{100 * n / d:.1f}%"
+
+
+def _idle_text(x):
+    if x["idle_s"] is None:
+        return "első hívás"
+    if x["overlap"]:
+        return f"átfedés {-x['idle_s']} s (előző még futott)"
+    return f"szünet {x['idle_s']} s"
 
 
 def _share(x):
@@ -564,6 +575,7 @@ def markdown(rep, meta):
               f"Mindkét feladat hívásai együtt ({tm['calls']}), mert ugyanazt a szolgáltatót terhelik. "
               f"Hosszú szünet: legalább {tm['idle_threshold_s']} s az előző hívás vége óta (vagy az első hívás). "
               "Csomag: ugyanabban a másodpercben több indult, vagy induláskor másik hívás még futott. "
+              "Átfedés: egy korábbi másodpercben indult hívás még futott (negatív szünet, külön sáv). "
               "Felbontás: 1 s.", "",
               "| hideg / összes | egyedül | csomagban |", "|---|---|---|",
               f"| hosszú szünet után | {c(g['hosszu_szunet_egyedul'])} | {c(g['hosszu_szunet_csomagban'])} |",
@@ -576,7 +588,7 @@ def markdown(rep, meta):
               "- ugyanabban a másodpercben indult: " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_same_second"].items()),
               "- induláskor futó hívások (magával együtt): " + ", ".join(f"{k} {c(v)}" for k, v in tm["by_in_flight"].items()),
               "- hideg hívások: " + ("; ".join(
-                  f"{x['time']} {x['task']} {x['ms']} ms, szünet {'–' if x['idle_s'] is None else str(x['idle_s']) + ' s'}, "
+                  f"{x['time']} {x['task']} {x['ms']} ms, {_idle_text(x)}, "
                   f"egy másodpercben {x['same_second']}, futó {x['in_flight']}" for x in tm["cold_calls"]) or "nincs"), ""]
     rs = rep.get("recall_log")
     if rs:

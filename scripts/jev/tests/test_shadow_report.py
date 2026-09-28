@@ -202,7 +202,9 @@ class WhyACallWasSlow(unittest.TestCase):
         # the call at +202 started while the 5 s call was running: overlap, in flight 2
         self.assertEqual(t["by_in_flight"], {"1": {"n": 3, "cold": 1}, "2-3": {"n": 1, "cold": 0}})
         self.assertEqual(t["by_idle"]["elso hivas"], {"n": 1, "cold": 0})
-        self.assertEqual(t["by_idle"]["<10 s"], {"n": 1, "cold": 0})   # the negative (overlap) idle
+        # the negative idle is an overlap, its own bucket -- never "<10 s"
+        self.assertEqual(t["by_idle"]["atfedes"], {"n": 1, "cold": 0})
+        self.assertNotIn("<10 s", t["by_idle"])
 
     def test_same_second_and_in_flight_in_a_burst(self):
         t = Store([mem(T0, "RELEVANT", True, latency=2000, rank=i) for i in range(1, 4)]).report()["timing"]
@@ -238,6 +240,24 @@ class WhyACallWasSlow(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual((c[0]["same_second"], c[0]["in_flight"]), (1, 2))
         self.assertEqual(t["grid"]["rovid_szunet_csomagban"], {"n": 2, "cold": 1})
+
+    def test_overlap_is_named_in_the_cold_list_and_markdown(self):
+        # A runs 10 s from T0; B starts at +4 (6 s overlap) and is cold; C starts at +40 (short pause).
+        st = Store([mem(T0, "RELEVANT", True, latency=10000),
+                    mem(T0 + 4, "RELEVANT", True, latency=9500),
+                    mem(T0 + 40, "RELEVANT", True, latency=300)])
+        t = st.report()["timing"]
+        b = [x for x in t["cold_calls"] if x["time"] == sr.iso(T0 + 4)][0]
+        self.assertEqual((b["idle_s"], b["overlap"]), (-6.0, True))
+        self.assertEqual(t["by_idle"], {"atfedes": {"n": 1, "cold": 1}, "10-60 s": {"n": 1, "cold": 0},
+                                        "elso hivas": {"n": 1, "cold": 1}})
+        md = st.run()[1]
+        self.assertIn("átfedés 6.0 s (előző még futott)", md)
+        self.assertNotIn("szünet -", md)
+
+    def test_zero_idle_is_a_pause_not_an_overlap(self):
+        self.assertEqual(sr._bucket(0, sr.IDLE_BUCKETS), "<10 s")
+        self.assertEqual(sr._bucket(-0.1, sr.IDLE_BUCKETS), "atfedes")
 
     def test_only_provider_calls_count(self):
         t = Store([mem(T0, "RELEVANT", True), mem(T0, "RELEVANT", True, outcome="disabled"),
