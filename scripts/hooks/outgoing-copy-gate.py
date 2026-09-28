@@ -677,6 +677,36 @@ def collect_telegram_body(tool_input: dict) -> str:
     return MDV2_ESCAPE.sub(r"\1", "\n".join(got))
 
 
+# D-005 baseline (2026-09-28): one JSONL line per verdict, so "how many did the
+# gate stop, and was it right" becomes answerable. The TEXT is never written,
+# only its length and sha256 (the log is plain 644 in store/). Any write error
+# is swallowed: a logging failure must never change a verdict. Sub-agents run
+# under their own UID and may not be able to write here; that gap is known.
+_DECISION_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "store", "outgoing-copy-gate-decisions.jsonl")
+
+
+def _record(channel: str, verdict: str, problems=(), text: str = "") -> None:
+    try:
+        import hashlib
+        import time
+        kinds = sorted({re.split(r"[:(]", str(p), 1)[0].strip()[:60] for p in problems})
+        row = {
+            "ts": int(time.time()),
+            "cwd": os.path.basename(os.getcwd()),
+            "channel": channel,
+            "verdict": verdict,
+            "kinds": kinds,
+            "n_problems": len(problems),
+            "len": len(text),
+            "sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16],
+        }
+        with open(_DECISION_LOG, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 -- logging must never alter the verdict
+        pass
+
+
 def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:
     """Audit a Telegram reply. FAIL-OPEN on any internal error (exit 0 + loud
     log): email is deferrable, but Telegram is the owner's ONLY supervision
@@ -700,6 +730,7 @@ def telegram_gate(tool_input: dict, channel: str = "Telegram") -> None:
         except OSError:
             pass
         sys.exit(0)
+    _record(channel, "deny" if problems else "allow", problems, text)
     if problems:
         sys.stderr.write(
             f"KIMENO-SZOVEG KAPU ({channel}): TILTVA, az uzenet nem mehet ki igy.\n\n"
@@ -858,6 +889,7 @@ def main():
         sys.exit(2)
 
     problems = audit(text)
+    _record("email" if tool != "Bash" else "bash-send", "deny" if problems else "allow", problems, text)
     if problems:
         sys.stderr.write(
             "KIMENO-SZOVEG KAPU: TILTVA, a levél nem mehet ki így.\n\n"

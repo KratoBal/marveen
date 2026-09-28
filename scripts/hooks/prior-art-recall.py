@@ -502,14 +502,6 @@ def main():
     # message that lands mid-turn reaches the model another way and never passes through
     # here -- so on a busy morning it can be silent for hours while looking installed.
     # The log makes that visible: no line means it did not run, not that it found nothing.
-    try:
-        with open(os.path.join(INSTALL_DIR, "store", "prior-art-recall.log"), "a",
-                  encoding="utf-8") as fh:
-            fh.write("%s\t%s\t%d\n" % (
-                __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                ",".join(words), len(rows)))
-    except OSError:
-        pass
     if outgoing:
         out = [
             "MIELOTT EZ AZ UZENET KIMEGY: errol mar volt szo (visszakereses a KULDENDO szoveg",
@@ -530,6 +522,20 @@ def main():
         out.append("%s [%s] %s" % (mark, label, (text or "")[:SNIPPET]))
     out.append("")
     text = "\n".join(out) + "\n"
+    strong = any(score > 1 for score, _, _, _ in rows)
+    brake = bool(outgoing and strong and asks_something(prompt) and not already_warned(prompt))
+    # Columns 4-6 added 2026-09-28 (D-005 baseline): the characters actually put
+    # into context, the direction, and whether the brake fired. The first three
+    # columns keep their old meaning, so older readers of this file still work.
+    try:
+        with open(os.path.join(INSTALL_DIR, "store", "prior-art-recall.log"), "a",
+                  encoding="utf-8") as fh:
+            fh.write("%s\t%s\t%d\t%d\t%s\t%d\n" % (
+                __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ",".join(words), len(rows), len(text),
+                "out" if outgoing else "in", 1 if brake else 0))
+    except OSError:
+        pass
     if outgoing:
         # A PreToolUse hook's plain stdout does NOT reach the model -- measured 2026-09-02
         # 09:57: the trace log proved the hook ran on two outgoing messages, and neither
@@ -544,8 +550,7 @@ def main():
         # eight marked. One shared word is coincidence; two is a subject. Stopping on
         # score-1 noise would make this brake fire on nearly every question, and a brake
         # that always fires is one everybody learns to step over.
-        strong = any(score > 1 for score, _, _, _ in rows)
-        if strong and asks_something(prompt) and not already_warned(prompt):
+        if brake:
             sys.stdout.write(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
