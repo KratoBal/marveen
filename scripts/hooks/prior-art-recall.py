@@ -579,7 +579,11 @@ def main():
     # hook further down. Measured 2026-09-02 07:42, first live firing -- an inbox wake-up
     # keyed on "messages, pending, wakeup, inbox" and pulled five rows about the message
     # queue itself. Recall on those words costs tokens and answers nothing.
-    if any(m in prompt for m in ("inbox-wakeup", "[SYSTEM:", "scheduled-task")):
+    # The inbox nudge ("[Inbox] Ha fent uj bejovo blokk van...", src/web/inbox-nudge-watcher.ts)
+    # is the same case: its own words, not the message, which inbox-drain.py adds as context.
+    # Measured 2026-09-28 by nautilus: these rows fed the D-005 shadow a pair that never
+    # happened (nudge words as the query, candidates recalled on "bejovo, blokk, dolgozd").
+    if any(m in prompt for m in ("inbox-wakeup", "[SYSTEM:", "scheduled-task")) or prompt.startswith("[Inbox]"):
         return 0
 
     tok = token()
