@@ -96,7 +96,7 @@ import sys, json
 d = json.load(sys.stdin)
 try:
     print('elinditva, uuid:', d['deployments'][0]['deployment_uuid'])
-    print('az allapotat a `kirakat-telepites.sh allapot` mondja meg')
+    print('az allapotat a kirakat-telepites.sh allapot parancs mondja meg')
 except Exception:
     print('NEM INDULT EL:', json.dumps(d)[:300])
 "
