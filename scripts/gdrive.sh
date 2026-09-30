@@ -25,6 +25,7 @@
 #   gdrive.sh upload <fajl> <szulo_id> [nev]   -> feltolt, kiirja az id-t es a linket
 #   gdrive.sh upload-doc <fajl.html|md> <szulo_id> [nev]
 #                                              -> feltolt ES Google Dokumentumma alakit
+#   gdrive.sh download <id> <kimeneti_fajl>    -> binaris fajl (PDF, XML) letoltese, drive.readonly kell
 #   gdrive.sh export <id> [kimeneti_fajl]       -> VISSZAOLVASSA a Drive-rol a szoveget
 #                                                 (ez az egyetlen kulso ellenorzes a tartalomra)
 #   gdrive.sh rename <id> <uj_nev>             -> atnevezes, a link es az id marad
@@ -240,6 +241,22 @@ elif CMD == "export":
     else:
         print(txt)
 
+elif CMD == "download":
+    # A binary file (PDF, XML, image) as-is. Needs drive.readonly for a file a human uploaded;
+    # with drive.file alone the answer is 404, which looks like "no such file" but is scope.
+    if len(a) < 2:
+        die("hasznalat: gdrive.sh download <id> <kimeneti_fajl>")
+    req = urllib.request.Request(BASE + "/files/%s?alt=media&supportsAllDrives=true" % a[0],
+                                 headers={"Authorization": "Bearer " + token()})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = r.read()
+    except urllib.error.HTTPError as e:
+        die("%s %s" % (e.code, e.read().decode()[:300]))
+    with open(a[1], "wb") as f:
+        f.write(data)
+    print("%s\t%d bajt" % (a[1], len(data)))
+
 elif CMD == "rename":
     if len(a) < 2:
         die("hasznalat: gdrive.sh rename <id> <uj_nev>")
@@ -302,6 +319,6 @@ PYEOF
 }
 
 case "$cmd" in
-  auth-url|auth-code|mkdir|upload|upload-doc|export|rename|update|share|ls|link) run "$@" ;;
+  auth-url|auth-code|mkdir|upload|upload-doc|export|download|rename|update|share|ls|link) run "$@" ;;
   *) die "ismeretlen parancs: '${cmd}' -- auth-url | auth-code | mkdir | upload | upload-doc | export | rename | update | share | ls | link" ;;
 esac
