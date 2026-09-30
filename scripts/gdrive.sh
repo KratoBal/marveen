@@ -61,7 +61,9 @@ CMD = os.environ["GD_CMD"]
 STORE = os.path.join(ROOT, "store")
 FOLDER_MIME = "application/vnd.google-apps.folder"
 DOC_MIME = "application/vnd.google-apps.document"
-SCOPE = "https://www.googleapis.com/auth/drive.file"
+# drive.readonly added 2026-09-30 (Balazs: a Drive folder where people drop the invoices we
+# could not find, and we process them). drive.file alone never sees a file a human uploaded.
+SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"
 REDIRECT = "http://localhost:8765/"
 
 
