@@ -289,7 +289,9 @@ elif CMD == "fetch":
         elif b.get("data") and p.get("mimeType") in ("text/plain", "text/html"):
             txt = base64.urlsafe_b64decode(b["data"] + "=" * (-len(b["data"]) % 4)).decode("utf-8", "replace")
             (plain if p["mimeType"] == "text/plain" else html).append(txt)
-    body = "\n".join(plain) if plain else _re.sub(r"<[^>]+>", " ", "\n".join(html))
+    # A plain part can be a placeholder (Figma receipts: one space, the content is HTML only),
+    # so an empty-looking plain part falls through to the HTML one.
+    body = "\n".join(plain) if "".join(plain).strip() else _re.sub(r"<[^>]+>", " ", "\n".join(html))
     with open(os.path.join(tgt, "body.txt"), "w", encoding="utf-8") as f:
         f.write(body)
     print("%s: %d melleklet, torzs %d karakter" % (mid, n, len(body)))
