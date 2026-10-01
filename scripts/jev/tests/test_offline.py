@@ -275,7 +275,21 @@ class Offline(unittest.TestCase):
         for form in ("e.v.", "ev.", "E.V.", "e. v.", "egyéni vállalkozó"):
             self.assertEqual(self.guard(f"issuer: Fekete Bolt {form}, 5000 HUF", allow),
                              ["KNOWN_ENTITY"], form)
-        self.assertEqual(self.guard("issuer: Fekete Bolt, 5000 HUF", allow), [])
+        # the same name with a legal form right after it is a company
+        for form in ("Kft.", "Zrt", "Bt.", "GmbH", "s.r.o."):
+            self.assertEqual(self.guard(f"issuer: Fekete Bolt {form}, 5000 HUF", allow), [], form)
+
+    def test_a_known_org_without_a_legal_form_still_stops_the_pairing(self):
+        """acrobot 25525: the ORG digests come from every customer's display name,
+        a private customer's included. Without a legal form in the hit or right
+        after it, the hit may be a person: it stops the call."""
+        self.known([("ORG", "Kovács János"), ("ORG", "Tisza 97 Kft.")])
+        allow = redact.PAIRING_KNOWN_ALLOW
+        for text in ("partner: Kovács János", "Fekete Bolt, Kovács János, 5000 HUF",
+                     "Kovács János FoxPost Kft."):
+            self.assertEqual(self.guard(text, allow), ["KNOWN_ENTITY"], text)
+        self.assertEqual(self.guard("issuer: Tisza 97 Kft., 5000 HUF", allow), [])
+        self.assertEqual(self.guard("issuer: Kovács János Kft.", allow), [])
 
     def test_only_org_can_be_allowed_past_the_known_entity_guard(self):
         self.known([("PERSON", "Varga Ilona")])

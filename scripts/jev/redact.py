@@ -106,10 +106,16 @@ ALWAYS_MASKED = {"SECRET", "IBAN", "TAX_ID", "BANK_ACCOUNT"}
 KEEPABLE = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
 # KNOWN-ENTITY HITS THE PAIRING MAY LET THROUGH (acrobot 25519, the list is
 # his): the ORG entries are customer company names, the same kind of data the
-# pairing already shows as an invoice issuer. Only ORG can be allowed, and a
-# sole trader's (ev., e.v., egyéni vállalkozó) never: that is a person's name.
+# pairing already shows as an invoice issuer. Only ORG can be allowed, and only
+# with a legal form in the hit or right after it (acrobot 25525): the ORG
+# digests are built from EVERY customer's display name, a private customer's
+# "Kovács János" included, and that must still stop the call. A sole trader's
+# (ev., e.v., egyéni vállalkozó) never passes: that is a person's name.
 KNOWN_ALLOWABLE = frozenset({"ORG"})
 PAIRING_KNOWN_ALLOW = frozenset({"ORG"})
+_LEGAL_FORM = r"(?:kft|bt|zrt|nyrt|kkt|gmbh|ltd|llc|inc|s\.r\.o)\.?"
+_FORM_IN_HIT = re.compile(r"(?i)(?<![^\W_])" + _LEGAL_FORM + r"\s*$")
+_FORM_AFTER_HIT = re.compile(r"(?i)[ \t]*,?[ \t]*" + _LEGAL_FORM + r"(?![^\W_])")
 _SOLE_TRADER = re.compile(r"(?i)(?<![^\W_])(?:e\.?\s?v\.?|egyéni\s+vállalkozó)(?![^\W_])")
 
 # What the pairing task keeps. CAPS, PROPER and DOMAIN stay masked on purpose:
@@ -721,8 +727,9 @@ def runtime_guard(redacted, *, allow_known_kinds=()):
     redaction would just agree with the first one.
 
     allow_known_kinds: known-entity kinds that do not stop the call (a subset of
-    KNOWN_ALLOWABLE, else every hit stops it). A sole trader's ORG hit still
-    stops it: the guard looks at the hit and the few characters after it."""
+    KNOWN_ALLOWABLE, else every hit stops it). An allowed ORG hit still stops
+    it without a legal form in the hit or right after it, and as a sole
+    trader's name."""
     allow = frozenset(allow_known_kinds)
     if not allow <= KNOWN_ALLOWABLE:
         return ["allow_known_kinds"]
@@ -739,7 +746,9 @@ def runtime_guard(redacted, *, allow_known_kinds=()):
     known = _load_known()
     if known:
         for s, e, kind in _known_spans(t, known):
-            allowed = kind in allow and not _SOLE_TRADER.search(t[s:e + 24])
+            allowed = (kind in allow
+                       and bool(_FORM_IN_HIT.search(t[s:e]) or _FORM_AFTER_HIT.match(t, e))
+                       and not _SOLE_TRADER.search(t[s:e + 24]))
             if not allowed:
                 problems.append("KNOWN_ENTITY")
                 break
