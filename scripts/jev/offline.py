@@ -36,6 +36,7 @@ Usage:
 """
 import argparse
 import json
+import re
 import os
 import sys
 import time
@@ -75,12 +76,27 @@ CATEGORIES = {
     "UNCERTAIN": "The text does not say what the payment was for.",
 }
 
-# A TASK THAT MAY NOT CALL OUT YET. The pairing signals (amount, invoice
-# number, date, company) are exactly what PD-006 redacts into placeholders, so
-# a call would measure the redactor, not Jev. Whether business data may go out
-# for this task is Balázs's decision (Eldöntendő thread, 1555039853165412364,
-# acrobot 25469). Until it is made, the task runs dry only.
-CALL_BLOCKED = {"missing_invoice_pair": "awaiting_decision_pd006"}
+# Tasks that may not call out yet, with the reason. Empty since Balázs decided
+# for the pairing (2026-10-01 04:38 UTC, Eldöntendő 1555039853165412364): it
+# runs with redact.PAIRING_KEEP, business data in, personal data still out.
+CALL_BLOCKED = {}
+
+# The legal forms that make a partner a company. "ev." (egyéni vállalkozó) is
+# NOT among them: a sole trader is a private person, and its name stays out.
+_COMPANY = re.compile(
+    r"(?i)(?<![^\W_])(kft|zrt|nyrt|bt|kkt|gmbh|ltd|limited|inc|llc|b\.?v|s\.?r\.?o|sas|sarl|ag|oy|ab|spa|srl|nv|plc|pbc)\.?(?![^\W_])")
+
+
+def _private(name):
+    """A partner without a legal form, and not a card merchant descriptor
+    (SIMPLEP*PARKL.NET), counts as a private person: its name is masked here,
+    before redaction, not left to the name detector (Balázs: on a transfer to
+    a private person the partner's name stays out too)."""
+    return bool(name) and not _COMPANY.search(name) and "*" not in name
+
+
+def _masked(text, name):
+    return text.replace(name, "<PRIVATE_PARTNER>") if name and _private(name) else text
 
 LETTER_CLASSES = {
     "BEJOVO_SZAMLA": "An invoice issued TO the company by a supplier, Hungarian or foreign (Invoice, Rechnung, Facture, számla).",
@@ -101,13 +117,15 @@ def _log_path():
 # ------------------------------------------------------------ the texts
 def payment_text(item):
     original = f" (original: {item['original']})" if item.get("original") else ""
-    return (f"Bank payment on {item['date']}: {item['amount']} {item['currency']}{original}. "
+    text = (f"Bank payment on {item['date']}: {item['amount']} {item['currency']}{original}. "
             f"Partner: {item['partner']}. Reference: {item['narrative']}. Type: {item.get('type', '')}.")
+    return _masked(text, item.get("partner", ""))
 
 
 def candidate_text(candidate):
-    return (f"Invoice {candidate['number']}, issued {candidate['date']}, gross {candidate['gross']} "
+    text = (f"Invoice {candidate['number']}, issued {candidate['date']}, gross {candidate['gross']} "
             f"{candidate['currency']}, issuer: {candidate['supplier']}.")
+    return _masked(text, candidate.get("supplier", ""))
 
 
 def letter_text(item):
@@ -119,8 +137,11 @@ def build(task, item):
     """(RedactedDTO, questions, option_keys). Raises shadow.Blocked on any
     redaction or guard failure: a dropped measurement, never a raw call."""
     if task == "missing_invoice_pair":
-        query = shadow._redacted_dto({"query": payment_text(item)}, {"query": MAX_QUERY_CHARS})
-        cands = [shadow._redacted_dto({"candidate": candidate_text(c)}, {"candidate": MAX_CANDIDATE_CHARS})
+        keep = redact.PAIRING_KEEP
+        query = shadow._redacted_dto({"query": payment_text(item)}, {"query": MAX_QUERY_CHARS},
+                                     keep_kinds=keep)
+        cands = [shadow._redacted_dto({"candidate": candidate_text(c)}, {"candidate": MAX_CANDIDATE_CHARS},
+                                      keep_kinds=keep)
                  for c in item["candidates"]]
         dto = shadow._combined_dto(query, cands)
         dto.input_hash = query.input_hash

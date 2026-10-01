@@ -98,6 +98,17 @@ COMMON = _load_common()
 # Kinds that are never allowed through in any form, whatever the caller asks.
 ALWAYS_MASKED = {"SECRET", "IBAN", "TAX_ID", "BANK_ACCOUNT"}
 
+# PD-006, NARROWED FOR ONE TASK (Balázs, 2026-10-01 04:38 UTC, Eldöntendő
+# thread 1555039853165412364): the missing-invoice pairing may see business
+# data, the amount, the date, the invoice number and the company name. Only
+# these kinds can ever be kept; a personal kind (name, e-mail, phone, address,
+# bank account, tax number) cannot be asked for, whoever asks.
+KEEPABLE = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
+# What the pairing task keeps. CAPS, PROPER and DOMAIN stay masked on purpose:
+# an all-caps or unknown proper name may be a person, and a company only comes
+# through with its legal form (ORG).
+PAIRING_KEEP = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
+
 # ---------------------------------------------------------------- patterns
 # Order matters: the most specific, most dangerous shapes first, so that a
 # token inside a URL is taken as SECRET before the URL rule sees it.
@@ -624,12 +635,21 @@ def _merge(spans):
     return out
 
 
-def redact(text, *, keep_dates=False):
+def redact(text, *, keep_dates=False, keep_kinds=()):
     """Returns {"text", "version", "counts"}. Raises RedactionError on any
     internal failure: the caller must then drop the item, never fall back
-    to the raw text."""
+    to the raw text.
+
+    keep_kinds: kinds left in the text (a subset of KEEPABLE, else an error).
+    A personal span masks either way: no keepable kind outranks a personal
+    one in _merge. Dropping the kept spans BEFORE the merge only keeps more of
+    the business text around it: "Kovács Péter Kft." becomes "<PERSON_1> Kft."
+    instead of one wider placeholder."""
     if not isinstance(text, str):
         raise RedactionError("input is not text")
+    keep_kinds = frozenset(keep_kinds)
+    if not keep_kinds <= KEEPABLE:
+        raise RedactionError("keep_kinds outside the keepable set")
     try:
         text = unicodedata.normalize("NFC", text)
         known = _load_known()
@@ -640,6 +660,8 @@ def redact(text, *, keep_dates=False):
                                             or not any(sp[0] < e and s < sp[1] for s, e in keep))]
         if keep_dates:
             spans = [s for s in spans if s[2] != "DATE"]
+        if keep_kinds:
+            spans = [s for s in spans if s[2] not in keep_kinds]
         spans = _merge(spans)
         mapping, counts, out, pos = {}, {}, [], 0
         for s, e, kind in spans:

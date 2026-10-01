@@ -28,7 +28,11 @@ SUITE = os.path.join(_HERE, "leak-suite.json")
 STATUS = os.environ.get("JEV_LEAK_GATE_STATUS", "/home/marveen/marveen/store/jev-leak-gate.json")
 # offline.py builds the texts of the offline measurement and hands them to the
 # same boundary; a change there must also close the gate until re-tested.
-CODE_FILES = ["redact.py", "shadow.py", "offline.py", "hu-names.txt", "preserve-terms.json", "leak-suite.json"]
+CODE_FILES = ["redact.py", "shadow.py", "offline.py", "hu-names.txt", "preserve-terms.json", "leak-suite.json",
+              "leak-suite-pairing.json"]
+# The pairing mode (redact.PAIRING_KEEP) keeps business data, so it has its own
+# suite: the gate is green only if BOTH runs leak nothing.
+PAIRING_SUITE = os.path.join(_HERE, "leak-suite-pairing.json")
 OPTIONAL_FILES = [redact.COMMON_WORDS_PATH]
 
 
@@ -63,12 +67,12 @@ def load_suite(path=SUITE):
         return _expand(json.load(f))
 
 
-def run(verbose=False):
-    suite = load_suite()
+def run(verbose=False, path=SUITE, keep_kinds=()):
+    suite = load_suite(path)
     leaks, kept, keep_total, errors = [], 0, 0, []
     for c in suite["cases"]:
         try:
-            out = redact.redact(c["text"])["text"]
+            out = redact.redact(c["text"], keep_kinds=keep_kinds)["text"]
         except redact.RedactionError as e:
             errors.append((c["id"], str(e)))
             continue
@@ -97,7 +101,14 @@ def main():
         print(f"  LEAK {cid}: {s!r} survived -> {out}")
     for cid, e in errors:
         print(f"  ERROR {cid}: {e}")
-    ok = not leaks and not errors
+    psuite, pleaks, perrors, pkept, pkeep_total = run(verbose, PAIRING_SUITE, redact.PAIRING_KEEP)
+    print(f"pairing mode {sorted(redact.PAIRING_KEEP)}, suite {psuite['suite_version']}: "
+          f"{len(psuite['cases'])} cases, {len(pleaks)} leaks, {len(perrors)} errors, keep {pkept}/{pkeep_total}")
+    for cid, s, out in pleaks:
+        print(f"  LEAK {cid}: {s!r} survived -> {out}")
+    for cid, e in perrors:
+        print(f"  ERROR {cid}: {e}")
+    ok = not leaks and not errors and not pleaks and not perrors
     if ok:
         os.makedirs(os.path.dirname(STATUS), exist_ok=True)
         tmp = STATUS + ".tmp"
@@ -105,6 +116,9 @@ def main():
             json.dump({"redaction_version": redact.REDACTION_VERSION,
                        "suite_version": suite["suite_version"], "code_hash": code_hash(),
                        "cases": n, "leaks": 0, "keep": [kept, keep_total],
+                       "pairing": {"suite_version": psuite["suite_version"],
+                                   "cases": len(psuite["cases"]), "leaks": 0,
+                                   "keep": [pkept, pkeep_total]},
                        "passed_at": int(time.time())}, f)
         os.replace(tmp, STATUS)
     elif os.path.exists(STATUS):

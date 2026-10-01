@@ -85,18 +85,50 @@ class Offline(unittest.TestCase):
             return []
 
     # ----------------------------------------------------------- the boundary
-    def test_the_pairing_task_cannot_call_out_until_the_decision(self):
+    def test_the_pairing_keeps_business_data_and_masks_personal_data(self):
+        """Balázs, 2026-10-01 04:38 UTC: the pairing may see the amount, the date,
+        the invoice number and the company; never a person, an e-mail, a phone,
+        a bank account or a tax number, and a private partner's name stays out."""
         self.gate()
-        row = offline.run_item("missing_invoice_pair", PAYMENT, "DEV", call=True)
-        self.assertEqual((row["outcome"], self.calls), ("blocked_awaiting_decision_pd006", []))
-        with self.assertRaises(SystemExit):
-            offline.main(["--task", "missing_invoice_pair", "--call"] + self.write_inputs())
-        self.assertEqual(self.calls, [])
+        item = dict(PAYMENT, partner="Tóth János",
+                    narrative="ACRW-2026/00362 tel +36 20 123 4567 toth.janos@example.com "
+                              "számla 11709002-20624460-00000000 adószám 12345678-2-42",
+                    candidates=[{"number": "SZ-2026/0815", "date": "2026-08-01", "gross": "1999",
+                                 "currency": "HUF", "supplier": "Szállító Kft.", "source": "NAV"},
+                                {"number": "SZ-2026/0790", "date": "2026-07-01", "gross": "2499",
+                                 "currency": "HUF", "supplier": "Nagy Anna ev.", "source": "NAV"}])
+        row = offline.run_item("missing_invoice_pair", item, "DEV", call=True)
+        self.assertEqual(row["outcome"], "provider_called")
+        sent = json.dumps(self.calls[0][0].fields, ensure_ascii=False)
+        for business in ("1999", "2026-08-17", "SZ-2026/0815", "ACRW-2026/00362", "Szállító Kft."):
+            self.assertIn(business, sent, business)
+        for personal in ("Tóth", "János", "Nagy", "Anna", "123 4567", "toth.janos",
+                         "11709002-20624460", "12345678-2-42"):
+            self.assertNotIn(personal, sent, personal)
+
+    def test_a_private_partner_is_masked_before_redaction(self):
+        self.assertEqual(offline._masked("Partner: Radván Norbert.", "Radván Norbert"),
+                         "Partner: <PRIVATE_PARTNER>.")
+        self.assertEqual(offline._masked("issuer: Kovács ev.", "Kovács ev."), "issuer: <PRIVATE_PARTNER>")
+        for company in ("Szállító Kft.", "SIMPLEP*PARKL.NET", "Anthropic, PBC", "De Jong Marinelife B.V."):
+            self.assertEqual(offline._masked(f"issuer: {company}", company), f"issuer: {company}", company)
+
+    def test_a_personal_kind_cannot_be_kept_by_anyone(self):
+        with self.assertRaises(redact.RedactionError):
+            redact.redact("Kovács Péter", keep_kinds={"PERSON"})
+        self.assertTrue(redact.PAIRING_KEEP <= redact.KEEPABLE)
+        self.assertFalse(redact.KEEPABLE & {"PERSON", "EMAIL", "PHONE", "ADDRESS", "IBAN",
+                                            "BANK_ACCOUNT", "TAX_ID", "SECRET"})
+
+    def test_the_other_tasks_redact_as_before(self):
+        self.gate()
+        offline.run_item("missing_invoice_category", PAYMENT, "DEV", call=True)
+        sent = json.dumps(self.calls[0][0].fields, ensure_ascii=False)
+        self.assertNotIn("SZ-2026/0815", sent)
+        self.assertNotIn("1999 HUF", sent)
 
     def test_a_call_sends_only_redacted_pieces_and_logs_no_text(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         row = offline.run_item("missing_invoice_pair", PAYMENT, "DEV", call=True)
         self.assertEqual(row["outcome"], "provider_called")
         dto, questions = self.calls[0]
@@ -110,8 +142,6 @@ class Offline(unittest.TestCase):
 
     def test_the_log_row_joins_its_label_and_holds_the_answer(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         offline.run_item("missing_invoice_pair", PAYMENT, "DEV", call=True)
         (row,) = self.log()
         self.assertEqual((row["item"], row["side"], row["task"], row["choice"], row["confidence"]),
@@ -150,8 +180,6 @@ class Offline(unittest.TestCase):
 
     def test_a_failed_redaction_blocks_the_call(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         # a redact modul SAJÁT útja (egy másik tesztmodul is beállíthatta előbb),
         # de CSAK ideiglenes helyen: a valódi store-beli fájlhoz teszt nem nyúl
         path = redact.KNOWN_ENTITIES_PATH
@@ -170,8 +198,6 @@ class Offline(unittest.TestCase):
 
     def test_the_hook_switch_is_not_turned_on_by_a_measurement(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         offline.run_item("missing_invoice_pair", PAYMENT, "DEV", call=True)
         self.assertFalse(os.path.exists(shadow.SWITCH))
 
@@ -186,15 +212,11 @@ class Offline(unittest.TestCase):
 
     def test_only_the_asked_side_runs(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         offline.main(["--task", "missing_invoice_pair", "--call"] + self.write_inputs())
         self.assertEqual([r["item"] for r in self.log()], ["a1b2c3d4e5f60718"])
 
     def test_the_holdout_needs_its_own_flag_and_runs_once(self):
         self.gate()
-        offline.CALL_BLOCKED.pop("missing_invoice_pair", None)
-        self.addCleanup(offline.CALL_BLOCKED.__setitem__, "missing_invoice_pair", "awaiting_decision_pd006")
         args = ["--task", "missing_invoice_pair", "--side", "HOLDOUT", "--call"] + self.write_inputs()
         with self.assertRaises(SystemExit):
             offline.main(args)
