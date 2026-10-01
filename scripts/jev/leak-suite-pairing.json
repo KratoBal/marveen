@@ -13,6 +13,6 @@
   {"id": "pair-iban", "text": "1.969,50 EUR CM8779 5 Bellevue SARRE UNION FR7610278056110002020650179", "leak": ["FR7610278056110002020650179"], "keep": ["CM8779"]},
   {"id": "pair-tax-number", "text": "issuer: Szállító Kft., adószám: 12345678-2-42, Invoice SZ-2026/0815", "leak": ["12345678-2-42"], "keep": ["SZ-2026/0815", "Szállító Kft."]},
   {"id": "pair-address", "text": "Partner: Állatkert Kft., 1146 Budapest, Állatkerti körút 6-12., 82000 HUF", "leak": ["Állatkerti körút 6-12"], "keep": ["82000 HUF"]},
-  {"id": "pair-secret", "text": "Reference: api_key=sk_live_Ab12Cd34Ef56Gh78Ij90 1999 HUF", "leak": ["sk_live_Ab12Cd34Ef56Gh78Ij90"], "keep": ["1999 HUF"]}
+  {"id": "pair-secret", "text": "Reference: api_key=s@@k_live_Ab12Cd34Ef56Gh78Ij90 1999 HUF", "leak": ["s@@k_live_Ab12Cd34Ef56Gh78Ij90"], "keep": ["1999 HUF"]}
  ]
 }
