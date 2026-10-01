@@ -75,6 +75,13 @@ CATEGORIES = {
     "UNCERTAIN": "The text does not say what the payment was for.",
 }
 
+# A TASK THAT MAY NOT CALL OUT YET. The pairing signals (amount, invoice
+# number, date, company) are exactly what PD-006 redacts into placeholders, so
+# a call would measure the redactor, not Jev. Whether business data may go out
+# for this task is Balázs's decision (Eldöntendő thread, 1555039853165412364,
+# acrobot 25469). Until it is made, the task runs dry only.
+CALL_BLOCKED = {"missing_invoice_pair": "awaiting_decision_pd006"}
+
 LETTER_CLASSES = {
     "BEJOVO_SZAMLA": "An invoice issued TO the company by a supplier, Hungarian or foreign (Invoice, Rechnung, Facture, számla).",
     "NYUGTA": "A payment receipt that accompanies an invoice; not the invoice itself.",
@@ -165,6 +172,8 @@ def run_item(task, item, side, call, show=None):
     row = {"ts": int(time.time()), "task": task, "policy": POLICIES.get(task), "side": side,
            "item": str(item.get("id", ""))[:32], "redaction_version": redact.REDACTION_VERSION}
     try:
+        if call and task in CALL_BLOCKED:
+            raise shadow.Blocked("blocked_" + CALL_BLOCKED[task])
         if call and not shadow._gate_green():
             raise shadow.Blocked("blocked_leak_gate")
         dto, questions, options = build(task, item)
@@ -229,6 +238,8 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--call", action="store_true", help="really call the provider (default: dry run)")
     a = p.parse_args(argv)
+    if a.call and a.task in CALL_BLOCKED:
+        sys.exit(f"{a.task}: --call is blocked ({CALL_BLOCKED[a.task]}); only the dry run is allowed.")
     if a.side == "HOLDOUT":
         if not (a.call and a.holdout_once):
             sys.exit("HOLDOUT: only with --call --holdout-once, after tuning is over.")
