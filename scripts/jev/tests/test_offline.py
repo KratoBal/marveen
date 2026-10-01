@@ -113,6 +113,40 @@ class Offline(unittest.TestCase):
         for company in ("Szállító Kft.", "SIMPLEP*PARKL.NET", "Anthropic, PBC", "De Jong Marinelife B.V."):
             self.assertEqual(offline._masked(f"issuer: {company}", company), f"issuer: {company}", company)
 
+    def test_the_pairing_keeps_company_names_whole_but_not_a_sole_trader(self):
+        """acrobot 25498: every issuer came back as "<PERSON_1> Kft.", so the
+        candidates could not be told apart. A name inside a company name with a
+        real legal form stays; a sole trader's (ev.) does not."""
+        self.gate()
+        item = dict(PAYMENT, partner="SIMPLEP*PARKL.NET", narrative="E-PAR-2026-36143",
+                    candidates=[{"number": "E-PAR-2026-36143", "date": "2026-08-01", "gross": "21699",
+                                 "currency": "HUF", "supplier": "Parkl Digital Technologies Kft.",
+                                 "source": "NAV"},
+                                {"number": "SZ-2026/0790", "date": "2026-07-01", "gross": "2499",
+                                 "currency": "HUF", "supplier": "Kovács Péter Kft.", "source": "NAV"},
+                                {"number": "SZ-2026/0791", "date": "2026-07-02", "gross": "2500",
+                                 "currency": "HUF", "supplier": "Szabó Géza ev.", "source": "NAV"}])
+        offline.run_item("missing_invoice_pair", item, "DEV", call=True)
+        fields = self.calls[0][0].fields
+        self.assertIn("Parkl Digital Technologies Kft.", fields["c0"])
+        self.assertIn("Kovács Péter Kft.", fields["c1"])
+        self.assertNotIn("Szabó", fields["c2"])
+        self.assertNotIn("Géza", fields["c2"])
+        # the field labels are not masked into <PROPER_n> noise (the merchant
+        # descriptor itself still is: PROPER and DOMAIN stay masked on purpose)
+        for label in ("partner:", "reference:", "type:"):
+            self.assertIn(label, fields["query"], label)
+
+    def test_the_company_rule_is_the_pairing_modes_only(self):
+        kept = redact.redact("issuer: Kovács Péter Kft.", keep_kinds=redact.PAIRING_KEEP)["text"]
+        default = redact.redact("issuer: Kovács Péter Kft.")["text"]
+        self.assertIn("Kovács Péter Kft.", kept)
+        self.assertNotIn("Péter", default)
+        # the sole trader stays masked in the pairing mode too, also without the
+        # runner's own private-partner mask in front of the redactor
+        for sole in ("issuer: Szabó Géza ev.", "issuer: Szabó Géza e.v."):
+            self.assertNotIn("Géza", redact.redact(sole, keep_kinds=redact.PAIRING_KEEP)["text"], sole)
+
     def test_a_personal_kind_cannot_be_kept_by_anyone(self):
         with self.assertRaises(redact.RedactionError):
             redact.redact("Kovács Péter", keep_kinds={"PERSON"})
