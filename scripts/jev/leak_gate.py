@@ -26,7 +26,9 @@ import redact  # noqa: E402
 
 SUITE = os.path.join(_HERE, "leak-suite.json")
 STATUS = os.environ.get("JEV_LEAK_GATE_STATUS", "/home/marveen/marveen/store/jev-leak-gate.json")
-CODE_FILES = ["redact.py", "shadow.py", "hu-names.txt", "preserve-terms.json", "leak-suite.json"]
+# offline.py builds the texts of the offline measurement and hands them to the
+# same boundary; a change there must also close the gate until re-tested.
+CODE_FILES = ["redact.py", "shadow.py", "offline.py", "hu-names.txt", "preserve-terms.json", "leak-suite.json"]
 OPTIONAL_FILES = [redact.COMMON_WORDS_PATH]
 
 
