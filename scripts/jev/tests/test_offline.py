@@ -207,6 +207,19 @@ class Offline(unittest.TestCase):
         for raw in ("Kovács", "Péter", "kovacs.peter@example.com", "123 4567", "HU4211709002"):
             self.assertNotIn(raw, sent, raw)
 
+    def test_an_email_whose_domain_the_pdf_broke_is_masked_and_guarded(self):
+        # r13 (2026-10-01): "szerviz.iroda@peldaceg." + "com" on the next PDF line went
+        # out readable under r12 (one DEV letter, a company service mailbox)
+        self.gate()
+        letter = {"id": "f00dfeedcafe0003", "subject": "Szerviz",
+                  "head": "File: x.pdf\nE-mail | : szerviz.iroda@peldaceg. | : / com"}
+        offline.run_item("letter_class", letter, "DEV", call=True)
+        sent = self.calls[0][0].fields["message"]
+        self.assertNotIn("szerviz.iroda", sent)
+        self.assertNotIn("peldaceg", sent)
+        raw = {"text": "szerviz.iroda@peldaceg.", "version": redact.REDACTION_VERSION}
+        self.assertIn("EMAIL", redact.runtime_guard(raw))
+
     def test_the_document_words_are_the_letter_tasks_only(self):
         # the pairing and the category redact as before: the preserve set is restored
         self.assertNotIn("Rechnung", redact.redact("Rechnung Proforma Invoice")["text"])
