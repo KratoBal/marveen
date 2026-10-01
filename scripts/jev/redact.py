@@ -29,7 +29,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r13"
+REDACTION_VERSION = "r14"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -172,7 +172,10 @@ _add("EMAIL", r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[^\W\d_]{2,}")
 # the patterns above need a whole domain, so the local part went out readable.
 # Measured on the 538 DEV letters of the letter classifier: exactly this one.
 # A word character must touch the @ on both sides: "@@TAI$" and "x @ y" stay.
-_add("EMAIL", r"(?<![\w.@-])[\w.+-]*\w@[\w-]+(?:\.[\w-]+)*\.?(?![\w@-])")
+# r14: the host starts with a letter (a "pass@10.0.4.12" URL credential stays the SECRET
+# pattern's), and no trailing dot is taken: a sentence's full stop stays outside,
+# and the leftover "." of a broken domain shows nothing.
+_add("EMAIL", r"(?<![\w.@-])[\w.+-]*\w@[^\W\d_][\w-]*(?:\.[\w-]+)*(?![\w@-])")
 
 _add("IBAN", r"(?i)\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]{4}){3,7}(?:[ -]?[A-Z0-9]{1,3})?\b")
 _add("BANK_ACCOUNT", _NB + r"\d{8}-\d{8}(?:-\d{8})?" + _NA)
