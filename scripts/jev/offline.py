@@ -138,13 +138,34 @@ def letter_text(item):
 def build(task, item):
     """(RedactedDTO, questions, option_keys). Raises shadow.Blocked on any
     redaction or guard failure: a dropped measurement, never a raw call."""
+    return build_with_map(task, item)[:3]
+
+
+def build_with_map(task, item):
+    """build(), plus {sent option key: original option key}. In the pairing a
+    candidate the guard stops leaves the list and the rest are renumbered
+    (acrobot 25560); the map turns the answer back into the original c-index,
+    which is what the labels name. A blocked query, or no candidate left,
+    still stops the item. Where nothing is dropped the request is the same as
+    before, byte for byte (the acropora-os port is checked against it)."""
     if task == "missing_invoice_pair":
         keep, allow = redact.PAIRING_KEEP, redact.PAIRING_KNOWN_ALLOW
         query = shadow._redacted_dto({"query": payment_text(item)}, {"query": MAX_QUERY_CHARS},
                                      keep_kinds=keep, allow_known_kinds=allow)
-        cands = [shadow._redacted_dto({"candidate": candidate_text(c)}, {"candidate": MAX_CANDIDATE_CHARS},
-                                      keep_kinds=keep, allow_known_kinds=allow)
-                 for c in item["candidates"]]
+        shadow._combined_dto(query, [], allow_known_kinds=allow)   # the query's cut piece
+        cands, kept, dropped = [], [], []
+        for i, c in enumerate(item["candidates"]):
+            try:
+                d = shadow._redacted_dto({"candidate": candidate_text(c)}, {"candidate": MAX_CANDIDATE_CHARS},
+                                         keep_kinds=keep, allow_known_kinds=allow)
+                shadow._combined_dto(query, [d], allow_known_kinds=allow)   # its cut piece
+            except shadow.Blocked as b:
+                dropped.append([i, b.outcome])
+                continue
+            cands.append(d)
+            kept.append(i)
+        if not cands:
+            raise shadow.Blocked("blocked_runtime_guard", "no candidate left")
         dto = shadow._combined_dto(query, cands, allow_known_kinds=allow)
         dto.input_hash = query.input_hash
         dto.counts = _sum_counts([query] + cands)
@@ -154,19 +175,21 @@ def build(task, item):
             "'query' is one payment from the company's bank account. Each field c0, c1, ... is one "
             "invoice the company received from that partner. Which invoice does this payment pay? "
             "Compare the amount, the date and any invoice number in the reference.")}}
-        return dto, questions, list(criteria)
+        back = {f"c{n}": f"c{i}" for n, i in enumerate(kept)}
+        back["NONE"] = "NONE"
+        return dto, questions, list(criteria), back, dropped
     if task == "missing_invoice_category":
         dto = shadow._redacted_dto({"query": payment_text(item)}, {"query": MAX_QUERY_CHARS})
         questions = {"category": {"type": "choice", "criteria": dict(CATEGORIES), "instructions": (
             "'query' is one payment from the company's bank account. Which kind of payment is it, "
             "and does it need an invoice?")}}
-        return dto, questions, list(CATEGORIES)
+        return dto, questions, list(CATEGORIES), None, []
     if task == "letter_class":
         dto = shadow._redacted_dto({"message": letter_text(item)}, {"message": MAX_LETTER_CHARS})
         questions = {"kind": {"type": "choice", "criteria": dict(LETTER_CLASSES), "instructions": (
             "'message' is the start of one PDF that arrived in the company's mailbox, with the mail's "
             "subject. What kind of document is the PDF itself (not what the mail is about)?")}}
-        return dto, questions, list(LETTER_CLASSES)
+        return dto, questions, list(LETTER_CLASSES), None, []
     raise shadow.Blocked("bad_task")
 
 
@@ -199,8 +222,10 @@ def run_item(task, item, side, call, show=None):
             raise shadow.Blocked("blocked_" + CALL_BLOCKED[task])
         if call and not shadow._gate_green():
             raise shadow.Blocked("blocked_leak_gate")
-        dto, questions, options = build(task, item)
+        dto, questions, options, back, dropped = build_with_map(task, item)
         row.update(input_hash=dto.input_hash, placeholders=dto.counts)
+        if dropped:
+            row["dropped"] = dropped   # [original index, outcome]; never a name
         if not call:
             row["outcome"] = "dry_run"
             if show is not None:
@@ -209,6 +234,10 @@ def run_item(task, item, side, call, show=None):
         row["outcome"] = "provider_called"
         r, ms = shadow._call_provider(dto, questions)
         choice, confidence, probs = _answer(r, options)
+        if back:
+            # the labels name the ORIGINAL candidate: translate the renumbered keys back
+            choice = back[choice]
+            probs = {back[k]: v for k, v in probs.items()}
         row.update(model=r.get("model"), choice=choice, confidence=confidence,
                    probabilities=probs, latency_ms=ms,
                    input_tokens=(r.get("usage") or {}).get("input_tokens"))
