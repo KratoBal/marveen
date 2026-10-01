@@ -29,7 +29,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r12"
+REDACTION_VERSION = "r13"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -167,6 +167,12 @@ _add("EMAIL", r"(?i)(?<![^\W_])[^\W_][\w.-]*(?:\s+pont\s+[\w-]+)*\s+(?:kukac|at|
 _add("EMAIL", r"(?<![\w.@-])[\w.-]+@(?=[\s,;:)]|$)")
 _add("DOMAIN", r"(?i)(?<![\w@.-])(?:[a-z0-9-]+\.)+(?:hu|com|de|at|eu|org|net|io|sk|ro|cz|uk|nl|shop|store)\b")
 _add("EMAIL", r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[^\W\d_]{2,}")
+# r13 (nautilus, 2026-10-01): an address whose domain the PDF broke across a line
+# ("szerviz.hun@atlascopco." and "com" on the next line), or a bare "user@host":
+# the patterns above need a whole domain, so the local part went out readable.
+# Measured on the 538 DEV letters of the letter classifier: exactly this one.
+# A word character must touch the @ on both sides: "@@TAI$" and "x @ y" stay.
+_add("EMAIL", r"(?<![\w.@-])[\w.+-]*\w@[\w-]+(?:\.[\w-]+)*\.?(?![\w@-])")
 
 _add("IBAN", r"(?i)\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]{4}){3,7}(?:[ -]?[A-Z0-9]{1,3})?\b")
 _add("BANK_ACCOUNT", _NB + r"\d{8}-\d{8}(?:-\d{8})?" + _NA)
