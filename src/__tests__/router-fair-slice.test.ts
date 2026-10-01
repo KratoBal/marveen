@@ -3,7 +3,7 @@
 // 2026-09-04-en: 34 fuggo uzenetbol 27 EGY dolgozo agense volt, az adag 100
 // szazalekban az ove lett, es negy keszen allo agens orakon at NEM kapott semmit.
 // A hiba nema volt: nem hibauzenet, nem naplo-sor, csak nem tortent kezbesites.
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 import { fairSliceByReceiver } from '../web/message-router.js'
 import type { AgentMessage } from '../db.js'
