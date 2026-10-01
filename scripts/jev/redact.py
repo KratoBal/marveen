@@ -28,7 +28,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r11"
+REDACTION_VERSION = "r12"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -745,9 +745,20 @@ def runtime_guard(redacted, *, allow_known_kinds=()):
                 problems.append(kind)
     known = _load_known()
     if known:
-        for s, e, kind in _known_spans(t, known):
-            allowed = (kind in allow
-                       and bool(_FORM_IN_HIT.search(t[s:e]) or _FORM_AFTER_HIT.match(t, e))
+        spans = _known_spans(t, known)
+
+        def formed(s, e):
+            return bool(_FORM_IN_HIT.search(t[s:e]) or _FORM_AFTER_HIT.match(t, e))
+
+        for s, e, kind in spans:
+            # r12 (acrobot 25567): a bare ORG hit passes when it is the start of a
+            # longer allowed ORG hit that reaches a legal form. build_known's caps
+            # alias makes "HANNA" out of "HANNA Instruments Service Kft.", and on
+            # the candidate line no legal form follows the bare word.
+            # (The longer hit is itself in spans, so its own sole-trader check runs.)
+            inside = any(k2 in allow and s2 == s and e2 > e and formed(s2, e2)
+                         for s2, e2, k2 in spans)
+            allowed = (kind in allow and (formed(s, e) or inside)
                        and not _SOLE_TRADER.search(t[s:e + 24]))
             if not allowed:
                 problems.append("KNOWN_ENTITY")

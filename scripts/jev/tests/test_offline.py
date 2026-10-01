@@ -240,7 +240,8 @@ class Offline(unittest.TestCase):
         redact.write_known_file(entries, path)
         redact._KNOWN_CACHE.clear()
         self.addCleanup(redact._KNOWN_CACHE.clear)
-        self.addCleanup(os.remove, path)
+        # several calls in one test: the file is removed once
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
 
     def guard(self, text, allow=()):
         return redact.runtime_guard({"text": text, "version": redact.REDACTION_VERSION},
@@ -290,6 +291,57 @@ class Offline(unittest.TestCase):
             self.assertEqual(self.guard(text, allow), ["KNOWN_ENTITY"], text)
         self.assertEqual(self.guard("issuer: Tisza 97 Kft., 5000 HUF", allow), [])
         self.assertEqual(self.guard("issuer: Kovács János Kft.", allow), [])
+
+    def test_a_bare_caps_alias_passes_inside_its_full_company_name(self):
+        """acrobot 25567 (r12): build_known's caps alias turns "HANNA Instruments
+        Service Kft." into a bare "HANNA" entry as well. Inside the full name,
+        which reaches a legal form, it passes; standing alone it still stops."""
+        self.known([("ORG", "HANNA Instruments Service Kft."), ("ORG", "HANNA Instruments Service"),
+                    ("ORG", "HANNA"), ("PERSON", "Varga Ilona")])
+        allow = redact.PAIRING_KNOWN_ALLOW
+        self.assertEqual(self.guard("issuer: HANNA Instruments Service Kft.", allow), [])
+        self.assertEqual(self.guard("issuer: HANNA Instruments Service Kft.", ()), ["KNOWN_ENTITY"])
+        for text in ("HANNA szerint a lámpa jó", "issuer: HANNA Instruments", "a HANNA Kovács Bt-nél"):
+            self.assertEqual(self.guard(text, allow), ["KNOWN_ENTITY"], text)
+        # only a longer hit from the SAME start counts: here the full name starts earlier
+        self.known([("ORG", "Alfa HANNA Beta Kft."), ("ORG", "HANNA")])
+        self.assertEqual(self.guard("issuer: Alfa HANNA Beta Kft.", allow), ["KNOWN_ENTITY"])
+        self.known([("ORG", "HANNA Instruments Service Kft."), ("ORG", "HANNA Instruments Service"),
+                    ("ORG", "HANNA")])
+        # the longer hit must itself reach a legal form
+        self.assertEqual(self.guard("a HANNA Instruments Service szerint", allow), ["KNOWN_ENTITY"])
+        # a sole-trader marker after the full name still stops it
+        self.assertEqual(self.guard("issuer: HANNA Instruments Service Kft., e.v.", allow), ["KNOWN_ENTITY"])
+
+    def test_a_blocked_candidate_leaves_the_list_and_the_answer_names_the_original(self):
+        """acrobot 25560: the guard drops the candidate, not the item; the rest
+        are renumbered, and the logged choice is the ORIGINAL c-index the labels
+        name. No candidate left, or a blocked query, still stops the item."""
+        self.gate()
+        self.known([("ORG", "FANK")])
+        item = dict(PAYMENT, partner="Akvárium Szerviz Kft.", narrative="SZ-2026/0815",
+                    candidates=[dict(PAYMENT["candidates"][0], number="FANK-2026", supplier="Szállító Kft."),
+                                dict(PAYMENT["candidates"][1], supplier="Szállító Kft.")])
+        self.reply = lambda questions: {k: {"choice": "c0", "confidence": 0.95,
+                                            "probabilities": {"c0": 0.95, "NONE": 0.05}}
+                                        for k in questions}
+        row = offline.run_item("missing_invoice_pair", item, "DEV", call=True)
+        self.assertEqual(row["outcome"], "provider_called")
+        self.assertEqual(row["dropped"], [[0, "blocked_runtime_guard"]])
+        fields = self.calls[0][0].fields
+        self.assertEqual(sorted(fields), ["c0", "query"])
+        self.assertNotIn("FANK", json.dumps(fields))
+        self.assertEqual(list(self.calls[0][1]["pair"]["criteria"]), ["c0", "NONE"])
+        self.assertEqual((row["choice"], row["probabilities"]), ("c1", {"c1": 0.95, "NONE": 0.05}))
+        # only the blocked one: no call
+        self.calls.clear()
+        alone = dict(item, candidates=item["candidates"][:1])
+        row = offline.run_item("missing_invoice_pair", alone, "DEV", call=True)
+        self.assertEqual((row["outcome"], row.get("detail"), self.calls),
+                         ("blocked_runtime_guard", "no candidate left", []))
+        # a blocked query still stops the item
+        row = offline.run_item("missing_invoice_pair", dict(item, narrative="FANK karbantartás"), "DEV", call=True)
+        self.assertEqual((row["outcome"], self.calls), ("blocked_runtime_guard", []))
 
     def test_only_org_can_be_allowed_past_the_known_entity_guard(self):
         self.known([("PERSON", "Varga Ilona")])
