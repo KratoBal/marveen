@@ -110,6 +110,37 @@ LETTER_CLASSES = {
 }
 
 
+# The letter classifier's own vocabulary: words that NAME a document kind, in the
+# languages our suppliers write. r12 masks them as names (capitalised, not in the
+# Hungarian common words), which removes exactly what the classifier has to see
+# (acrobot 25743, measured on 40 DEV letters). Generic document words only: no
+# company, person or place.
+LETTER_TERMS = (
+    # invoice, receipt
+    "Invoice", "Invoices", "Rechnung", "Facture", "Fattura", "Factura", "Factuur", "Faktura",
+    "Tax invoice", "Receipt", "Quittung", "Reçu", "Kassenbon",
+    # pro forma, advance
+    "Proforma", "Pro forma", "Pro-forma", "Vorkasse",
+    # credit note
+    "Credit note", "Gutschrift", "Avoir", "Storno",
+    # delivery note
+    "Delivery", "Delivery note", "Lieferschein", "Packing", "Packing slip", "Bon de livraison",
+    # order, offer
+    "Order", "Order confirmation", "Confirmation", "Auftragsbestätigung", "Bestellbestätigung",
+    "Bestellung", "Auftrag", "Commande", "Offer", "Quote", "Quotation", "Angebot", "Offerte", "Devis",
+    # reminder
+    "Reminder", "Payment reminder", "Mahnung", "Zahlungserinnerung", "Rappel", "Relance",
+    "Herinnering", "Aanmaning", "Sollecito",
+    # the document's own labels
+    "File", "Page", "Seite", "Customer", "Kunde", "Client", "Total", "Subtotal", "Amount", "Date",
+    "Due", "Payment", "Net", "Gross", "VAT", "Tax", "Number", "Summe", "Gesamt", "Betrag", "Datum",
+    # the Hungarian kinds, capitalised at the start of a title
+    "Számla", "Díjbekérő", "Előlegbekérő", "Szállítólevél", "Nyugta", "Árajánlat", "Ajánlat",
+    "Megrendelés", "Rendelés", "Visszaigazolás", "Emlékeztető", "Fizetési emlékeztető",
+    "Felszólítás", "Jóváíró", "Helyesbítő", "Sztornó", "Végösszeg", "Összesen", "Fizetendő",
+)
+
+
 def _log_path():
     return os.path.join(shadow.STORE, LOG_NAME)
 
@@ -185,7 +216,8 @@ def build_with_map(task, item):
             "and does it need an invoice?")}}
         return dto, questions, list(CATEGORIES), None, []
     if task == "letter_class":
-        dto = shadow._redacted_dto({"message": letter_text(item)}, {"message": MAX_LETTER_CHARS})
+        dto = shadow._redacted_dto({"message": letter_text(item)}, {"message": MAX_LETTER_CHARS},
+                                   preserve=LETTER_TERMS)
         questions = {"kind": {"type": "choice", "criteria": dict(LETTER_CLASSES), "instructions": (
             "'message' is the start of one PDF that arrived in the company's mailbox, with the mail's "
             "subject. What kind of document is the PDF itself (not what the mail is about)?")}}

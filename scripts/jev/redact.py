@@ -22,6 +22,7 @@ Placeholders are stable within one call (<PERSON_1> twice for the same
 person) so coreference survives. REDACTION_VERSION must change whenever
 behaviour changes; the leak suite is bound to it.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -362,6 +363,27 @@ def _folded_index(text):
             back.append(i)
     back.append(len(text))
     return "".join(folded), back
+
+
+@contextlib.contextmanager
+def preserving(terms):
+    """Within the block the given words count as preserved, like
+    preserve-terms.json. For a task whose own vocabulary would otherwise be
+    masked as a name: the letter classifier's document words ("Invoice",
+    "Rechnung", "Proforma") are capitalised and not in the Hungarian common
+    words, so r12 masked them as PROPER or PERSON, and the classifier saw
+    "<PROPER_3> | e-Számla" instead of "Invoice | e-Számla" (measured
+    2026-10-01, nautilus: 10 of 10 "Invoice" and all "Proforma" masked on 40
+    DEV letters). The always-masked kinds (email, phone, IBAN, tax id) are
+    patterns, not words, so a preserved word never unmasks them; the runtime
+    guard does not read this set."""
+    global PRESERVE
+    base = PRESERVE
+    PRESERVE = base | {fold(t) for t in terms}
+    try:
+        yield
+    finally:
+        PRESERVE = base
 
 
 def _is_preserved(span_text):

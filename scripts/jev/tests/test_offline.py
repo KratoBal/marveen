@@ -192,6 +192,28 @@ class Offline(unittest.TestCase):
         self.assertNotIn("Kovács", sent)
         self.assertEqual(sorted(questions["kind"]["criteria"]), sorted(offline.LETTER_CLASSES))
 
+    def test_a_letter_keeps_its_document_words_and_still_masks_the_personal_ones(self):
+        # acrobot 25743: r12 masked "Invoice", "Rechnung", "Proforma" as names, so the
+        # classifier lost exactly what it has to see
+        self.gate()
+        letter = {"id": "f00dfeedcafe0002", "subject": "Proforma Invoice Kovács Péter",
+                  "head": "File: inv.pdf\nRechnung Proforma Invoice Delivery note Total Customer\n"
+                          "Kovács Péter kovacs.peter@example.com +36 30 123 4567\n"
+                          "HU42117090022062446000000000"}
+        offline.run_item("letter_class", letter, "DEV", call=True)
+        sent = self.calls[0][0].fields["message"]
+        for word in ("File", "Rechnung", "Proforma", "Invoice", "Delivery", "Total", "Customer"):
+            self.assertIn(word, sent, word)
+        for raw in ("Kovács", "Péter", "kovacs.peter@example.com", "123 4567", "HU4211709002"):
+            self.assertNotIn(raw, sent, raw)
+
+    def test_the_document_words_are_the_letter_tasks_only(self):
+        # the pairing and the category redact as before: the preserve set is restored
+        self.assertNotIn("Rechnung", redact.redact("Rechnung Proforma Invoice")["text"])
+        with redact.preserving(offline.LETTER_TERMS):
+            self.assertIn("Rechnung", redact.redact("Rechnung Proforma Invoice")["text"])
+        self.assertNotIn("Rechnung", redact.redact("Rechnung Proforma Invoice")["text"])
+
     def test_an_answer_outside_the_options_is_not_a_measurement(self):
         self.gate()
         self.reply = lambda questions: {k: {"choice": "MADE_UP", "confidence": 1.0} for k in questions}
