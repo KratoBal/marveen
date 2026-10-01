@@ -117,8 +117,10 @@ def _log_path():
 # ------------------------------------------------------------ the texts
 def payment_text(item):
     original = f" (original: {item['original']})" if item.get("original") else ""
-    text = (f"Bank payment on {item['date']}: {item['amount']} {item['currency']}{original}. "
-            f"Partner: {item['partner']}. Reference: {item['narrative']}. Type: {item.get('type', '')}.")
+    # lower-case field labels: a capitalised label reads as a proper name to the
+    # redactor and comes back as <PROPER_n> noise (acrobot 25498)
+    text = (f"Bank payment on {item['date']}: {item['amount']} {item['currency']}{original}; "
+            f"partner: {item['partner']}; reference: {item['narrative']}; type: {item.get('type', '')}.")
     return _masked(text, item.get("partner", ""))
 
 

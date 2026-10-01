@@ -108,6 +108,13 @@ KEEPABLE = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
 # an all-caps or unknown proper name may be a person, and a company only comes
 # through with its legal form (ORG).
 PAIRING_KEEP = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
+# A company name keeps its words only with one of these legal forms at its end.
+# The sole trader (ev., e.v.) is NOT here: that name is a person's name.
+_COMPANY_FORM_END = re.compile(r"(?i)(?:^|[\s.,])(kft|zrt|bt|kkt|nyrt|gmbh|ltd)\.?\s*$")
+# What a company name may contain and still be kept whole (acrobot 25498: the
+# name detector read "Parkl Digital Technologies" as a person, and every issuer
+# became "<PERSON_1> Kft.", indistinguishable on the candidate list).
+_NAME_KINDS_IN_COMPANY = frozenset({"PERSON", "PROPER", "CAPS"})
 
 # ---------------------------------------------------------------- patterns
 # Order matters: the most specific, most dangerous shapes first, so that a
@@ -660,6 +667,15 @@ def redact(text, *, keep_dates=False, keep_kinds=()):
                                             or not any(sp[0] < e and s < sp[1] for s, e in keep))]
         if keep_dates:
             spans = [s for s in spans if s[2] != "DATE"]
+        if "ORG" in keep_kinds:
+            # A name-like span inside a company name with a real legal form is
+            # the company's name, not a person's: it stays. Every other kind
+            # inside it (e-mail, phone, bank account, tax number) still masks.
+            companies = [(s, e) for s, e, k in spans
+                         if k == "ORG" and _COMPANY_FORM_END.search(text[s:e])]
+            spans = [sp for sp in spans
+                     if not (sp[2] in _NAME_KINDS_IN_COMPANY
+                             and any(cs <= sp[0] and sp[1] <= ce for cs, ce in companies))]
         if keep_kinds:
             spans = [s for s in spans if s[2] not in keep_kinds]
         spans = _merge(spans)
