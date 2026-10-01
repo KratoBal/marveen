@@ -139,13 +139,13 @@ def build(task, item):
     """(RedactedDTO, questions, option_keys). Raises shadow.Blocked on any
     redaction or guard failure: a dropped measurement, never a raw call."""
     if task == "missing_invoice_pair":
-        keep = redact.PAIRING_KEEP
+        keep, allow = redact.PAIRING_KEEP, redact.PAIRING_KNOWN_ALLOW
         query = shadow._redacted_dto({"query": payment_text(item)}, {"query": MAX_QUERY_CHARS},
-                                     keep_kinds=keep)
+                                     keep_kinds=keep, allow_known_kinds=allow)
         cands = [shadow._redacted_dto({"candidate": candidate_text(c)}, {"candidate": MAX_CANDIDATE_CHARS},
-                                      keep_kinds=keep)
+                                      keep_kinds=keep, allow_known_kinds=allow)
                  for c in item["candidates"]]
-        dto = shadow._combined_dto(query, cands)
+        dto = shadow._combined_dto(query, cands, allow_known_kinds=allow)
         dto.input_hash = query.input_hash
         dto.counts = _sum_counts([query] + cands)
         criteria = {f"c{i}": f"The invoice in field c{i}." for i in range(len(cands))}

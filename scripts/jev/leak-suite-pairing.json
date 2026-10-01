@@ -1,6 +1,6 @@
 {
- "suite_version": "pairing-v2",
- "note": "PD-006 narrowed for the missing-invoice pairing (Balázs 2026-10-01 04:38 UTC, Eldöntendő 1555039853165412364). Run with redact.PAIRING_KEEP: the business data in 'keep' must survive, the personal data in 'leak' must not. Synthetic texts, no real person. v2 (acrobot 25498): a name-like span inside a company name with a real legal form (Kft., Zrt., Bt., Kkt., Nyrt., GmbH, Ltd) is the company's name and stays; a sole trader (ev.) does not, and an e-mail, phone, bank account or tax number inside a company name still masks.",
+ "suite_version": "pairing-v3",
+ "note": "PD-006 narrowed for the missing-invoice pairing (Balázs 2026-10-01 04:38 UTC, Eldöntendő 1555039853165412364). Run with redact.PAIRING_KEEP: the business data in 'keep' must survive, the personal data in 'leak' must not. Synthetic texts, no real person. v2 (acrobot 25498): a name-like span inside a company name with a real legal form (Kft., Zrt., Bt., Kkt., Nyrt., GmbH, Ltd) is the company's name and stays; a sole trader (ev.) does not, and an e-mail, phone, bank account or tax number inside a company name still masks. v3 (acrobot 25517/25519): a number may be the last word before the legal form (\"Tisza 97 Kft.\"); an amount before a company name does not join it, and the person before it still masks.",
  "cases": [
   {
    "id": "pair-business-all",
@@ -180,6 +180,37 @@
    ],
    "keep": [
     "5000 HUF"
+   ]
+  },
+  {
+   "id": "pair-number-in-company",
+   "text": "Invoice 2026/118, gross 4500 HUF, issuer: Tisza 97 Kft.",
+   "leak": [],
+   "keep": [
+    "2026/118",
+    "4500 HUF",
+    "Tisza 97 Kft."
+   ]
+  },
+  {
+   "id": "pair-number-in-hyphenated-company",
+   "text": "issuer: B-O 2001 Kft.; reference: BO-2026-0042",
+   "leak": [],
+   "keep": [
+    "B-O 2001 Kft.",
+    "BO-2026-0042"
+   ]
+  },
+  {
+   "id": "pair-amount-before-company",
+   "text": "Kovács János 45000 FoxPost Kft. díj",
+   "leak": [
+    "Kovács",
+    "János"
+   ],
+   "keep": [
+    "45000",
+    "FoxPost Kft."
    ]
   }
  ]
