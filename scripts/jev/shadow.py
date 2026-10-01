@@ -118,7 +118,7 @@ def text_hash(text):
     return hashlib.blake2b(str(text).encode("utf-8"), key=_salt(), digest_size=8).hexdigest()
 
 
-def _redacted_dto(fields, limits, keep_kinds=(), allow_known_kinds=()):
+def _redacted_dto(fields, limits, keep_kinds=(), allow_known_kinds=(), preserve=()):
     """Redacts each field in full and cuts the REDACTED text to its limit:
     a cut before redaction can split an email or a name so that no pattern
     recognises the remaining half."""
@@ -128,7 +128,8 @@ def _redacted_dto(fields, limits, keep_kinds=(), allow_known_kinds=()):
         if len(value) > MAX_REDACT_CHARS:
             raise Blocked("blocked_too_long")
         try:
-            r = redact.redact(value, keep_kinds=keep_kinds)
+            with redact.preserving(preserve):
+                r = redact.redact(value, keep_kinds=keep_kinds)
         except redact.RedactionError as e:
             raise Blocked("blocked_redaction_error", str(e))
         problems = redact.runtime_guard(r, allow_known_kinds=allow_known_kinds)
