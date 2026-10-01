@@ -28,7 +28,7 @@ import os
 import re
 import unicodedata
 
-REDACTION_VERSION = "r10"
+REDACTION_VERSION = "r11"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 KNOWN_ENTITIES_PATH = os.environ.get(
@@ -104,6 +104,14 @@ ALWAYS_MASKED = {"SECRET", "IBAN", "TAX_ID", "BANK_ACCOUNT"}
 # these kinds can ever be kept; a personal kind (name, e-mail, phone, address,
 # bank account, tax number) cannot be asked for, whoever asks.
 KEEPABLE = frozenset({"AMOUNT", "DATE", "ID", "ORG"})
+# KNOWN-ENTITY HITS THE PAIRING MAY LET THROUGH (acrobot 25519, the list is
+# his): the ORG entries are customer company names, the same kind of data the
+# pairing already shows as an invoice issuer. Only ORG can be allowed, and a
+# sole trader's (ev., e.v., egyéni vállalkozó) never: that is a person's name.
+KNOWN_ALLOWABLE = frozenset({"ORG"})
+PAIRING_KNOWN_ALLOW = frozenset({"ORG"})
+_SOLE_TRADER = re.compile(r"(?i)(?<![^\W_])(?:e\.?\s?v\.?|egyéni\s+vállalkozó)(?![^\W_])")
+
 # What the pairing task keeps. CAPS, PROPER and DOMAIN stay masked on purpose:
 # an all-caps or unknown proper name may be a person, and a company only comes
 # through with its legal form (ORG).
@@ -234,7 +242,12 @@ _add("CAPS", r"(?<![\w-])[A-ZÁÉÍÓÖŐÚÜŰ]{2,}(?:-[A-ZÁÉÍÓÖŐÚÜŰ]{
 _add("HANDLE", r"(?<![\w@])@[\w.-]{2,}")
 _add("HANDLE", r"(?<=\s)[a-z0-9._-]+@[a-z0-9-]+(?:\.local|\.lan)?(?=\s|$)")
 # company: one to four words before a company-form suffix, any case
-_add("ORG", r"(?i)(?<![^\W_])(?:[^\W\d_][\w&.-]*[ \t]+){0,3}[^\W\d_][\w&.-]*[ \t]+(?:kft|bt|zrt|nyrt|kkt|ev|e\.v|gmbh|ltd|llc|inc|s\.r\.o)\.?(?=[\s,;:.!?)-]|$)")
+# A number may stand only as the LAST word before the legal form ("Tisza 97
+# Kft.", "B-O 2001 Kft.": the number used to break the match, and the name came
+# out as "<PROPER_1> 97 Kft.", acrobot 25517). Not anywhere in the name: then
+# "Kovács János 45000 FoxPost Kft." would be one ORG span, the amount would go
+# with it, and the pairing's company rule would keep the person's name.
+_add("ORG", r"(?i)(?<![^\W_])(?:[^\W\d_][\w&.-]*[ \t]+){0,3}[^\W\d_][\w&.-]*(?:[ \t]+\d[\w&.-]*)?[ \t]+(?:kft|bt|zrt|nyrt|kkt|ev|e\.v|gmbh|ltd|llc|inc|s\.r\.o)\.?(?=[\s,;:.!?)-]|$)")
 
 
 class RedactionError(Exception):
@@ -701,11 +714,18 @@ def redact(text, *, keep_dates=False, keep_kinds=()):
         raise RedactionError(f"redaction failed: {type(e).__name__}") from None
 
 
-def runtime_guard(redacted):
+def runtime_guard(redacted, *, allow_known_kinds=()):
     """Last net right before the provider call (ACD-011 point 4). Returns a
     list of problem kinds; empty means pass. It re-runs only the
     always-masked patterns and the raw known-entity scan: a second full
-    redaction would just agree with the first one."""
+    redaction would just agree with the first one.
+
+    allow_known_kinds: known-entity kinds that do not stop the call (a subset of
+    KNOWN_ALLOWABLE, else every hit stops it). A sole trader's ORG hit still
+    stops it: the guard looks at the hit and the few characters after it."""
+    allow = frozenset(allow_known_kinds)
+    if not allow <= KNOWN_ALLOWABLE:
+        return ["allow_known_kinds"]
     problems = []
     if not isinstance(redacted, dict) or redacted.get("version") != REDACTION_VERSION:
         return ["version"]
@@ -717,8 +737,12 @@ def runtime_guard(redacted):
             if rx.search(t):
                 problems.append(kind)
     known = _load_known()
-    if known and _known_spans(t, known):
-        problems.append("KNOWN_ENTITY")
+    if known:
+        for s, e, kind in _known_spans(t, known):
+            allowed = kind in allow and not _SOLE_TRADER.search(t[s:e + 24])
+            if not allowed:
+                problems.append("KNOWN_ENTITY")
+                break
     return sorted(set(problems))
 
 

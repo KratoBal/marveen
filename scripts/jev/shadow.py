@@ -118,7 +118,7 @@ def text_hash(text):
     return hashlib.blake2b(str(text).encode("utf-8"), key=_salt(), digest_size=8).hexdigest()
 
 
-def _redacted_dto(fields, limits, keep_kinds=()):
+def _redacted_dto(fields, limits, keep_kinds=(), allow_known_kinds=()):
     """Redacts each field in full and cuts the REDACTED text to its limit:
     a cut before redaction can split an email or a name so that no pattern
     recognises the remaining half."""
@@ -131,7 +131,7 @@ def _redacted_dto(fields, limits, keep_kinds=()):
             r = redact.redact(value, keep_kinds=keep_kinds)
         except redact.RedactionError as e:
             raise Blocked("blocked_redaction_error", str(e))
-        problems = redact.runtime_guard(r)
+        problems = redact.runtime_guard(r, allow_known_kinds=allow_known_kinds)
         if problems:
             raise Blocked("blocked_runtime_guard", ",".join(problems))
         cut = r["text"][: limits[name]]
@@ -142,7 +142,7 @@ def _redacted_dto(fields, limits, keep_kinds=()):
     return RedactedDTO(out, redact.REDACTION_VERSION, counts, raw_hash)
 
 
-def _combined_dto(query_dto, candidate_dtos):
+def _combined_dto(query_dto, candidate_dtos, allow_known_kinds=()):
     """P-016: ONE provider request out of pieces that were each redacted and
     guarded on their own (the leak gate is measured per piece). It accepts
     only RedactedDTOs, re-runs the runtime guard on every piece it puts in,
@@ -155,7 +155,8 @@ def _combined_dto(query_dto, candidate_dtos):
     for i, d in enumerate(candidate_dtos):
         fields["c%d" % i] = d.fields["candidate"]
     for name, text in fields.items():
-        problems = redact.runtime_guard({"text": text, "version": redact.REDACTION_VERSION})
+        problems = redact.runtime_guard({"text": text, "version": redact.REDACTION_VERSION},
+                                        allow_known_kinds=allow_known_kinds)
         if problems:
             raise Blocked("blocked_runtime_guard", ",".join(problems))
     return RedactedDTO(fields, redact.REDACTION_VERSION, {}, "")

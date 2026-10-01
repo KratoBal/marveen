@@ -230,6 +230,70 @@ class Offline(unittest.TestCase):
         self.assertTrue(row["outcome"].startswith("blocked"), row["outcome"])
         self.assertEqual(self.calls, [])
 
+    # ------------------------------------------------ known entities (25519)
+    def known(self, entries):
+        """The known-entity file, ONLY at a temporary path: the real store file
+        is never touched by a test."""
+        path = redact.KNOWN_ENTITIES_PATH
+        if not os.path.realpath(path).startswith(os.path.realpath(tempfile.gettempdir())):
+            self.skipTest("the known-entity path is not a temporary file")
+        redact.write_known_file(entries, path)
+        redact._KNOWN_CACHE.clear()
+        self.addCleanup(redact._KNOWN_CACHE.clear)
+        self.addCleanup(os.remove, path)
+
+    def guard(self, text, allow=()):
+        return redact.runtime_guard({"text": text, "version": redact.REDACTION_VERSION},
+                                    allow_known_kinds=allow)
+
+    def test_a_known_company_reaches_the_pairing_and_nothing_else(self):
+        """acrobot 25519: the list's ORG entries are customer company names, the
+        same data the pairing already shows as an issuer. Only the pairing lets
+        them through; every other task still stops on them."""
+        self.gate()
+        self.known([("ORG", "Tisza 97 Kft."), ("PERSON", "Varga Ilona")])
+        item = dict(PAYMENT, partner="SIMPLEP*FOXPOST", narrative="SZ-2026/0815",
+                    candidates=[dict(PAYMENT["candidates"][0], supplier="Tisza 97 Kft."),
+                                dict(PAYMENT["candidates"][1], supplier="Fluidra Kft.")])
+        row = offline.run_item("missing_invoice_pair", item, "DEV", call=True)
+        self.assertEqual(row["outcome"], "provider_called")
+        self.assertIn("Tisza 97 Kft.", json.dumps(self.calls[0][0].fields, ensure_ascii=False))
+        self.assertEqual(self.guard("issuer: Tisza 97 Kft.", redact.PAIRING_KNOWN_ALLOW), [])
+        self.assertEqual(self.guard("issuer: Tisza 97 Kft."), ["KNOWN_ENTITY"])
+        # the category task keeps no ORG: the name is masked before the guard
+        # would see it, and if it ever came through, the guard stops it there
+        self.calls.clear()
+        offline.run_item("missing_invoice_category", item, "DEV", call=True)
+        self.assertEqual(len(self.calls), 1)
+        self.assertNotIn("Tisza", json.dumps(self.calls[0][0].fields, ensure_ascii=False))
+
+    def test_a_known_person_or_sole_trader_still_stops_the_pairing(self):
+        self.known([("PERSON", "Varga Ilona"), ("ORG", "Fekete Bolt")])
+        allow = redact.PAIRING_KNOWN_ALLOW
+        self.assertEqual(self.guard("issuer: Varga Ilona", allow), ["KNOWN_ENTITY"])
+        # an ORG hit that is a sole trader's name, whatever the spelling
+        for form in ("e.v.", "ev.", "E.V.", "e. v.", "egyéni vállalkozó"):
+            self.assertEqual(self.guard(f"issuer: Fekete Bolt {form}, 5000 HUF", allow),
+                             ["KNOWN_ENTITY"], form)
+        self.assertEqual(self.guard("issuer: Fekete Bolt, 5000 HUF", allow), [])
+
+    def test_only_org_can_be_allowed_past_the_known_entity_guard(self):
+        self.known([("PERSON", "Varga Ilona")])
+        self.assertEqual(self.guard("issuer: Varga Ilona", {"PERSON"}), ["allow_known_kinds"])
+        self.assertEqual(self.guard("nothing known here", {"ORG", "EMAIL"}), ["allow_known_kinds"])
+
+    def test_a_number_in_a_company_name_stays_in_the_name(self):
+        """acrobot 25517: "Tisza 97 Kft." came out as "<PROPER_1> 97 Kft.". The
+        number may be the last word before the legal form, nowhere else: an
+        amount before a company name must not join it."""
+        keep = redact.PAIRING_KEEP
+        for name in ("Tisza 97 Kft.", "B-O 2001 Kft."):
+            self.assertEqual(redact.redact(f"issuer: {name}", keep_kinds=keep)["text"],
+                             f"issuer: {name}", name)
+        out = redact.redact("Kovács János 45000 FoxPost Kft. díj", keep_kinds=keep)["text"]
+        self.assertNotIn("Kovács", out)
+        self.assertIn("FoxPost Kft.", out)
+
     def test_the_hook_switch_is_not_turned_on_by_a_measurement(self):
         self.gate()
         offline.run_item("missing_invoice_pair", PAYMENT, "DEV", call=True)
