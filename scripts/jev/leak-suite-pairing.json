@@ -1,0 +1,18 @@
+{
+ "suite_version": "pairing-v1",
+ "note": "PD-006 narrowed for the missing-invoice pairing (Balázs 2026-10-01 04:38 UTC, Eldöntendő 1555039853165412364). Run with redact.PAIRING_KEEP: the business data in 'keep' must survive, the personal data in 'leak' must not. Synthetic texts, no real person.",
+ "cases": [
+  {"id": "pair-business-all", "text": "Bank payment on 2026-08-17: 1999 HUF. Partner: Parkl Digital Technologies Kft. Reference: E-PAR-2026-36143.", "leak": [], "keep": ["1999 HUF", "2026-08-17", "E-PAR-2026-36143", "Parkl Digital Technologies Kft."]},
+  {"id": "pair-invoice-line", "text": "Invoice KS26/09229, issued 2026-08-03, gross 17807 HUF, issuer: Fluidra Magyarország Kft.", "leak": [], "keep": ["KS26/09229", "2026-08-03", "17807 HUF", "Fluidra Magyarország Kft."]},
+  {"id": "pair-person-in-reference", "text": "Reference: Kovács Péter részére visszautalás ACRW-2026/00362, 34000 HUF.", "leak": ["Kovács", "Péter"], "keep": ["ACRW-2026/00362", "34000 HUF"]},
+  {"id": "pair-person-company-name", "text": "Partner: Kovács Péter Kft., 12700 HUF.", "leak": ["Péter"], "keep": ["12700 HUF"]},
+  {"id": "pair-sole-trader", "text": "issuer: Nagy Anna ev., Invoice 2026/0815", "leak": ["Nagy", "Anna"], "keep": ["2026/0815"]},
+  {"id": "pair-email", "text": "Reference: szamla kovacs.peter@gmail.com 2026-08-17", "leak": ["kovacs.peter@gmail.com", "kovacs.peter"], "keep": ["2026-08-17"]},
+  {"id": "pair-phone", "text": "Reference: hívjon +36 20 123 4567 számon, 5000 HUF", "leak": ["123 4567", "+36 20"], "keep": ["5000 HUF"]},
+  {"id": "pair-bank-account", "text": "Partner account 11709002-20624460-00000000, Reference: E-SA1-2026-296", "leak": ["11709002-20624460", "20624460"], "keep": ["E-SA1-2026-296"]},
+  {"id": "pair-iban", "text": "1.969,50 EUR CM8779 5 Bellevue SARRE UNION FR7610278056110002020650179", "leak": ["FR7610278056110002020650179"], "keep": ["CM8779"]},
+  {"id": "pair-tax-number", "text": "issuer: Szállító Kft., adószám: 12345678-2-42, Invoice SZ-2026/0815", "leak": ["12345678-2-42"], "keep": ["SZ-2026/0815", "Szállító Kft."]},
+  {"id": "pair-address", "text": "Partner: Állatkert Kft., 1146 Budapest, Állatkerti körút 6-12., 82000 HUF", "leak": ["Állatkerti körút 6-12"], "keep": ["82000 HUF"]},
+  {"id": "pair-secret", "text": "Reference: api_key=s@@k_live_Ab12Cd34Ef56Gh78Ij90 1999 HUF", "leak": ["s@@k_live_Ab12Cd34Ef56Gh78Ij90"], "keep": ["1999 HUF"]}
+ ]
+}
