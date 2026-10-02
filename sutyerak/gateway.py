@@ -118,6 +118,21 @@ def save_thread(t: dict) -> None:
     os.replace(tmp, thread_path(t["threadId"]))
 
 
+def system_prompt() -> str:
+    """The persona file plus the web menu from the catalog, so a "how do I"
+    question can name the real page instead of inventing one."""
+    base = read(os.path.join(HERE, "system-prompt.md"))
+    try:
+        with open(CATALOG, encoding="utf-8") as f:
+            menu = json.load(f).get("menu", [])
+    except (OSError, ValueError):
+        menu = []
+    if not menu:
+        return base
+    lines = "\n".join(f"- {m['label']}: {m['href']}" for m in menu)
+    return base + "\n\nAz Acropora OS menüje (felirat: útvonal a böngészőben):\n" + lines + "\n"
+
+
 def build_prompt(question: str, context: dict | None, user_name: str) -> str:
     parts = []
     if context:
@@ -161,7 +176,7 @@ def run_claude(t: dict, is_new: bool, prompt: str, body: dict, emit) -> dict:
             "--strict-mcp-config", "--mcp-config", mcp_path,
             "--setting-sources", "",
             "--allowedTools", "mcp__sutyerak__os_get", "mcp__sutyerak__os_endpoints", "mcp__sutyerak__acrobot_atadas",
-            "--system-prompt", read(os.path.join(HERE, "system-prompt.md")),
+            "--system-prompt", system_prompt(),
         ]
         if is_new:
             t["sessionId"] = str(uuid.uuid4())
