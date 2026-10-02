@@ -426,6 +426,27 @@ class Offline(unittest.TestCase):
             offline.main(args + ["--holdout-once"])
         self.assertEqual(len(self.calls), 1)
 
+    def test_a_fresh_holdout_set_runs_once_but_not_one_that_repeats_an_item(self):
+        self.gate()
+        args = ["--task", "missing_invoice_pair", "--side", "HOLDOUT", "--call", "--holdout-once"]
+        offline.main(args + self.write_inputs())
+        self.assertEqual(len(self.calls), 1)
+        fresh = [dict(PAYMENT, id="eeee000011112222")]
+        h, s = os.path.join(_TMP, "h2.json"), os.path.join(_TMP, "s2.json")
+        with open(h, "w") as f:
+            json.dump(dict(HALMAZ, A=fresh), f)
+        with open(s, "w") as f:
+            json.dump({"tetelek": {"eeee000011112222": "HOLDOUT"}}, f)
+        offline.main(args + ["--halmaz", h, "--felosztas", s])
+        self.assertEqual([r["item"] for r in self.log()], ["ffff000011112222", "eeee000011112222"])
+        with open(s, "w") as f:
+            json.dump({"tetelek": {"eeee000011112222": "HOLDOUT", "ffff000011112222": "HOLDOUT"}}, f)
+        with open(h, "w") as f:
+            json.dump(dict(HALMAZ, A=fresh + [HALMAZ["A"][1]]), f)
+        with self.assertRaises(SystemExit):
+            offline.main(args + ["--halmaz", h, "--felosztas", s])
+        self.assertEqual(len(self.calls), 2)
+
     def test_the_offline_file_is_part_of_the_gate(self):
         self.assertIn("offline.py", leak_gate.CODE_FILES)
 
