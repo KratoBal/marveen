@@ -32,6 +32,7 @@ import { startContextGuardRunner } from './web/context-guard-runner.js'
 import { startContextRestartGateRunner } from './web/context-restart-gate-runner.js'
 import { collectTokenUsage } from './web/token-usage.js'
 import { logger } from './logger.js'
+import { tryHandleSutyerak } from './web/routes/sutyerak.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
 import { tryHandleBridgeServicePorts } from './web/routes/bridge-service-ports.js'
@@ -174,6 +175,7 @@ export function startWebServer(port = 3420): http.Server {
     try {
       const routeCtx: RouteContext = { req, res, path, method, url, fedPeer: fedPeerForCtx, auth: ctxAuth }
 
+      if (await tryHandleSutyerak(routeCtx)) return
       if (await tryHandleAuth(routeCtx)) return
       if (await tryHandleSecurity(routeCtx)) return
       if (await tryHandleBridgeServicePorts(routeCtx)) return
