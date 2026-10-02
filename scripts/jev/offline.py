@@ -23,7 +23,10 @@ to measure would change the fleet's behaviour, which this file must not do.
 
 THE HOLDOUT SIDE RUNS ONCE. --side HOLDOUT needs --holdout-once, and is
 refused if the log already holds a called HOLDOUT row for the same task and
-policy: the plans fix the holdout until tuning is over, then one run.
+policy and ANY item of this run: the plans fix the holdout until tuning is
+over, then one run. The key is the item, not the task, so a fresh blind set
+with none of the earlier items can run once; a set that repeats even one
+item cannot.
 
 Log: store/jev-offline.jsonl, one row per item. Fields: ts, task, policy,
 side, item (the dataset's own id, so a row joins its label), input_hash,
@@ -299,17 +302,19 @@ def items_for(task, halmaz, felosztas, side):
     return [i for i in pool if split.get(i["id"]) == side]
 
 
-def holdout_already_run(task):
+def holdout_already_run(task, item_ids):
+    """The ids among item_ids that already have a called HOLDOUT row for this task and policy."""
+    seen = set()
     try:
         with open(_log_path(), encoding="utf-8") as f:
             for line in f:
                 r = json.loads(line)
                 if (r.get("side") == "HOLDOUT" and r.get("task") == task
                         and r.get("policy") == POLICIES[task] and r.get("outcome") == "provider_called"):
-                    return True
+                    seen.add(r.get("item"))
     except FileNotFoundError:
-        return False
-    return False
+        return set()
+    return seen & set(item_ids)
 
 
 def main(argv=None):
@@ -327,8 +332,6 @@ def main(argv=None):
     if a.side == "HOLDOUT":
         if not (a.call and a.holdout_once):
             sys.exit("HOLDOUT: only with --call --holdout-once, after tuning is over.")
-        if holdout_already_run(a.task):
-            sys.exit("HOLDOUT: already run for this task and policy; it runs once.")
     with open(a.halmaz, encoding="utf-8") as f:
         halmaz = json.load(f)
     with open(a.felosztas, encoding="utf-8") as f:
@@ -336,6 +339,10 @@ def main(argv=None):
     items = items_for(a.task, halmaz, felosztas, a.side)
     if a.limit:
         items = items[: a.limit]
+    if a.side == "HOLDOUT":
+        repeated = holdout_already_run(a.task, [i["id"] for i in items])
+        if repeated:
+            sys.exit(f"HOLDOUT: {len(repeated)} of these items already ran for this task and policy; it runs once.")
 
     def show(item_id, fields):
         print(f"--- {item_id}")
