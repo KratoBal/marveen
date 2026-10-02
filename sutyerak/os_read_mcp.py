@@ -145,14 +145,12 @@ def os_endpoints(args: dict) -> str:
     term = str(args.get("kereses", "")).lower().strip()
     rows = []
     for r in catalog["routes"]:
-        hay = " ".join([r["path"], r["handler"], r.get("note", ""), " ".join(r["permissions"])]).lower()
+        hay = " ".join([r["path"], r["handler"], r.get("note", ""), r.get("keywords", "")]).lower()
         if term and not all(t in hay for t in term.split()):
             continue
         line = r["path"]
         if r["query"]:
             line += "  ?" + ",".join(r["query"])
-        if r["permissions"]:
-            line += "  [" + ",".join(r["permissions"]) + "]"
         if term and r.get("note"):
             line += "  -- " + r["note"][:160]
         rows.append(line)

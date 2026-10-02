@@ -93,5 +93,47 @@ for file in sorted(src.rglob("*.controller.ts")):
             "file": str(file.relative_to(repo)),
         })
 
-out.write_text(json.dumps({"denied_prefixes": denied_prefixes, "denied_exact": sorted(denied_exact), "routes": routes}, ensure_ascii=False, indent=1))
+# Hungarian words per API area, so a Hungarian search term finds the route.
+KEYWORDS = {
+    "billing": "számla számlázás kimenő kiállított vevő bizonylat nyugta",
+    "purchasing": "beszerzés bejövő számla szállító várható beérkezés rendelés",
+    "integrations/nav": "nav bejövő számla adóhatóság",
+    "missing-invoices": "hiányzó számla könyvelő",
+    "service/worksheets": "munkalap",
+    "service/jobs": "hibajegy szerviz",
+    "service/assets": "eszköz eszköznyilvántartás",
+    "service/material-requests": "anyagigény",
+    "maintenance": "karbantartás ütemezés",
+    "aquariums": "akvárium vízérték mérés",
+    "partners": "partner ügyfél szerződés",
+    "customers": "vevő ügyfél",
+    "products": "termék cikkszám készlet",
+    "stock": "készlet raktár leltár",
+    "pos": "pos bolti eladás pénztár",
+    "unas/orders": "rendelés webshop megrendelés",
+    "integrations/gls": "gls futár utánvét elszámolás",
+    "integrations/foxpost": "foxpost csomagautomata elszámolás",
+    "integrations/simplepay": "simplepay kártyás fizetés elszámolás",
+    "dashboard": "vezérlőpult összesítő",
+    "users": "felhasználó dolgozó",
+}
+for r in routes:
+    p = r["path"].strip("/")
+    r["keywords"] = " ".join(v for k, v in KEYWORDS.items() if p.startswith(k) or ("/" + k + "/") in ("/" + p + "/"))
+
+# The web menu (labels and routes), so "how do I ..." can name the page.
+menu = []
+nav = repo / "apps/web/src/components/navigation.ts"
+if nav.exists():
+    text = nav.read_text()
+    for m in re.finditer(r'href:\s*"([^"]+)"', text):
+        win = text[max(0, m.start() - 300): m.end() + 300]
+        best, dist = None, 1e9
+        for lm in re.finditer(r'label:\s*"([^"]+)"', win):
+            if abs(lm.start() - 300) < dist:
+                dist, best = abs(lm.start() - 300), lm.group(1)
+        if best:
+            menu.append({"href": m.group(1), "label": best})
+
+out.write_text(json.dumps({"denied_prefixes": denied_prefixes, "denied_exact": sorted(denied_exact), "routes": routes, "menu": menu}, ensure_ascii=False, indent=1))
 print(f"{len(routes)} GET routes written to {out}")
