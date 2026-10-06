@@ -33,6 +33,7 @@ CATALOG = os.environ["SUTYERAK_CATALOG"]
 USER_ID = os.environ.get("SUTYERAK_USER_ID", "")
 USER_NAME = os.environ.get("SUTYERAK_USER_NAME", "")
 THREAD_ID = os.environ.get("SUTYERAK_THREAD_ID", "")
+CONVERSATION_ID = os.environ.get("SUTYERAK_CONVERSATION_ID", "")
 TOOL_LOG = os.environ.get("SUTYERAK_TOOL_LOG", "")
 HANDOFF_URL = os.environ.get("SUTYERAK_HANDOFF_URL", "")
 HANDOFF_TOKEN_FILE = os.environ.get("SUTYERAK_HANDOFF_TOKEN_FILE", "")
@@ -177,6 +178,7 @@ def acrobot_atadas(args: dict) -> str:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"userId": USER_ID, "userName": USER_NAME, "threadId": THREAD_ID,
+                   "conversationId": CONVERSATION_ID or None,
                    "keres": keres, "miert": miert, "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
                   f, ensure_ascii=False, indent=1)
     content = (

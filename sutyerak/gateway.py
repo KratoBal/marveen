@@ -136,7 +136,7 @@ def system_prompt() -> str:
 def build_prompt(question: str, context: dict | None, user_name: str) -> str:
     parts = []
     if context:
-        where = ", ".join(f"{k}: {v}" for k, v in context.items() if v)
+        where = ", ".join(f"{k}: {v}" for k, v in context.items() if v and k != "conversationId")
         if where:
             parts.append(f"[Ahol a dolgozó éppen áll: {where}]")
     parts.append(f"[Mai dátum: {time.strftime('%Y-%m-%d')}, kérdező: {user_name}]")
@@ -159,6 +159,9 @@ def run_claude(t: dict, is_new: bool, prompt: str, body: dict, emit) -> dict:
                 "SUTYERAK_USER_ID": str(user["id"]),
                 "SUTYERAK_USER_NAME": str(user.get("name", "")),
                 "SUTYERAK_THREAD_ID": t["threadId"],
+                # The Messages conversation the question came from (empty for the widget):
+                # the handoff file carries it so acrobot's answer can go back there.
+                "SUTYERAK_CONVERSATION_ID": str((body.get("context") or {}).get("conversationId") or "")[:64],
                 "SUTYERAK_TOOL_LOG": os.path.join(LOG_DIR, "tools.jsonl"),
                 "SUTYERAK_HANDOFF_URL": "http://localhost:3420/api/messages",
                 "SUTYERAK_HANDOFF_TOKEN_FILE": DASHBOARD_TOKEN_FILE,
