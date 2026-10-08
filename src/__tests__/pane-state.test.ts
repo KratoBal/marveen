@@ -61,6 +61,12 @@ const IDLE_MANUAL_MODE = modeFooter('  ⏵ manual mode on (shift+tab to cycle)')
 const IDLE_BYPASS_FLEETVIEW = modeFooter('  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents')
 // No shift+tab hint at all: the tail alone has to carry it.
 const IDLE_ACCEPT_EDITS_TAIL_ONLY = modeFooter('  ⏵⏵ accept edits on · 1 monitor · ← for agents')
+// An 80-column pane cuts the footer before any known idle action (murena,
+// 2026-10-08): the `…` truncation mark at the end of the line has to carry it.
+const IDLE_BYPASS_TRUNCATED = modeFooter('  ⏵⏵ bypass permissions on · install gh for PR status · 2 shells · ← for agen…')
+const IDLE_BYPASS_TRUNCATED_EARLY = modeFooter('  ⏵⏵ bypass permissions on · install gh for PR st…')
+// Prose with an ellipsis but no mode glyph must stay out.
+const NOT_A_FOOTER_ELLIPSIS = ['', SEP, '❯ ', SEP, '  the light was on · then it went…'].join('\n')
 
 // The tail is what keeps prose out. Scrollback quoting a footer phrase without
 // the UI chrome must NOT read as idle -- otherwise a pasted log line parks the
@@ -456,6 +462,8 @@ describe('detectPaneState', () => {
     ['manual mode', IDLE_MANUAL_MODE],
     ['bypass with the FleetView tail', IDLE_BYPASS_FLEETVIEW],
     ['accept edits with no shift+tab hint', IDLE_ACCEPT_EDITS_TAIL_ONLY],
+    ['bypass footer cut by a narrow pane', IDLE_BYPASS_TRUNCATED],
+    ['bypass footer cut before the shell count', IDLE_BYPASS_TRUNCATED_EARLY],
   ])('detects idle on the %s footer', (_label, pane) => {
     expect(detectPaneState(pane)).toBe('idle')
     expect(isReadyForPrompt(pane)).toBe(true)
@@ -463,6 +471,10 @@ describe('detectPaneState', () => {
 
   it('does not read a quoted footer phrase without the UI tail as idle', () => {
     expect(detectPaneState(NOT_A_FOOTER_QUOTED)).not.toBe('idle')
+  })
+
+  it('does not read prose ending in an ellipsis as a truncated footer', () => {
+    expect(detectPaneState(NOT_A_FOOTER_ELLIPSIS)).not.toBe('idle')
   })
 
 
