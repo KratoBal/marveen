@@ -75,7 +75,16 @@ export type PaneState = 'idle' | 'busy' | 'typing' | 'unknown' | 'error'
 // scrollback still will not match; it needs the shift+tab hint or a `·`
 // separated idle action, which is UI chrome that prose does not carry.
 // `← for agents` is the FleetView tail on current builds; older tails kept.
-const IDLE_FOOTER_RX = /(?:[A-Za-z][\w-]* ){1,3}on(?: \(shift\+tab to cycle\)| · [^\n]*?(?:ctrl\+t|↓ to manage|← for agents))|\? for shortcuts/
+//
+// A NARROW PANE CUTS THE TAIL. Measured 2026-10-08: murena's tmux window was
+// 80 columns, Claude Code added `· install gh for PR status ·` to the footer,
+// and the line rendered as `⏵⏵ bypass permissions on · install gh for PR
+// status · 2 shells · ← for agen…`. No known idle action survived, the pane
+// read as 'unknown', and 14 messages sat undelivered all evening. So a third
+// tail is accepted: a `·`-separated tail that ENDS (end of line) in the `…`
+// truncation mark. It still needs the mode glyph (⏵/⏸) in front of the mode
+// words, which is UI chrome prose does not carry.
+const IDLE_FOOTER_RX = /(?:[A-Za-z][\w-]* ){1,3}on(?: \(shift\+tab to cycle\)| · [^\n]*?(?:ctrl\+t|↓ to manage|← for agents))|[⏵⏸]+ (?:[A-Za-z][\w-]* ){1,3}on · [^\n]*…[ \t]*(?=\n|$)|\? for shortcuts/
 
 // Positive busy signals. ANY match anywhere in the pane means the turn
 // is mid-flight, even if the footer looks idle for a frame.
